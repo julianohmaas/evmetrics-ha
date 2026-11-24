@@ -36,7 +36,8 @@ function vehicle(keys) {
   const entities = {};
   for (const name of keys) {
     const key = KEYS[name] || name;
-    entities[key] = `${DOMAIN_OF[name] || "sensor"}.byd_seal_${key.toLowerCase()}`;
+    // como no registro do HA: unique_id do app em minúsculas
+    entities[key.toLowerCase()] = `${DOMAIN_OF[name] || "sensor"}.byd_seal_${key.toLowerCase()}`;
   }
   return {
     entry_id: "abc",
@@ -107,6 +108,15 @@ test("carro completo gera as 6 views sem buracos", async () => {
   const todos = d.views.find((x) => x.path === "todos");
   const listed = JSON.stringify(todos);
   for (const e of Object.values(v.entities)) assert.ok(listed.includes(e), `"Todos" sem ${e}`);
+});
+
+test("chaves do registro em minúsculas (unique_id do app) acham os cartões", async () => {
+  const v = vehicle(Object.keys(KEYS));
+  const d = await generateDashboard({}, hassWith(v));
+  const view = (p) => JSON.stringify(d.views.find((x) => x.path === p));
+  assert.ok(view("carro").includes("sensor.byd_seal_statistic_remaining_battery_power"), "SOC no cartão do carro");
+  assert.equal(d.views.find((x) => x.path === "conducao").sections.length, 4, "condução com as 4 seções");
+  assert.ok(view("energia").includes("sensor.byd_seal_battery_cell_delta_mv"), "células do CAN na energia");
 });
 
 test("carro com poucas chaves não gera cartão vazio", async () => {

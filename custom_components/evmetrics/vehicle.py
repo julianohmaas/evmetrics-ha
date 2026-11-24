@@ -1,7 +1,7 @@
 """Liga uma entrada ao dispositivo do app e às entidades que o MQTT Discovery dele criou.
 
 O contrato entre o app e este pacote são as **chaves** (as mesmas do JSON do app e do SensorCatalog), não os
-entity_id: o app publica cada entidade com unique_id "<node_id>_<chave>", então o mapa chave → entity_id continua certo
+entity_id: o app publica cada entidade com unique_id "<node_id>_<chave em minúsculas>", então o mapa chave → entity_id continua certo
 mesmo se o usuário renomear uma entidade no HA.
 """
 

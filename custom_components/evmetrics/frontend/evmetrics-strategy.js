@@ -150,27 +150,33 @@ class Ctx {
   constructor(vehicle, hass) {
     this.v = vehicle;
     this.hass = hass;
-    this.map = vehicle.entities || {};
+    // o app publica unique_id em minúsculas ("evmetrics_seal_statistic_soc_battery_percentage"); as chaves daqui
+    // seguem o JSON do app (maiúsculas), então a busca é sempre em minúsculas
+    this.map = {};
+    for (const [key, entity] of Object.entries(vehicle.entities || {})) this.map[key.toLowerCase()] = entity;
   }
 
   /** entity_id da chave, ou undefined. */
   id(key) {
-    return this.map[key];
+    return this.map[String(key).toLowerCase()];
   }
 
   has(...keys) {
-    return keys.every((k) => this.map[k]);
+    return keys.every((k) => this.id(k));
   }
 
   /** Linhas {entity, name} das chaves que existem. */
   rows(list) {
     return list
-      .map(([key, name]) => (this.map[key] ? (name ? { entity: this.map[key], name } : { entity: this.map[key] }) : null))
+      .map(([key, name]) => {
+        const entity = this.id(key);
+        return entity ? (name ? { entity, name } : { entity }) : null;
+      })
       .filter(Boolean);
   }
 
   tile(key, name, extra = {}) {
-    const entity = this.map[key];
+    const entity = this.id(key);
     if (!entity) return null;
     return { type: "tile", entity, ...(name ? { name } : {}), grid_options: { columns: 6 }, ...extra };
   }
@@ -210,7 +216,7 @@ class Ctx {
 
   /** Atributo de uma entidade numa linha de cartão entities. */
   attr(key, attribute, name, suffix) {
-    const entity = this.map[key];
+    const entity = this.id(key);
     if (!entity) return null;
     return { type: "attribute", entity, attribute, name, ...(suffix ? { suffix } : {}) };
   }
@@ -228,7 +234,7 @@ class Ctx {
       path,
       icon,
       type: "sections",
-      max_columns: 4,
+      max_columns: 3,
       sections: sections.filter(Boolean),
       ...extra,
     };
@@ -236,8 +242,8 @@ class Ctx {
 
   /** Cartão só visível com a chave no estado dado. */
   when(card, key, state) {
-    if (!card || !this.map[key]) return card;
-    return { ...card, visibility: [{ condition: "state", entity: this.map[key], state }] };
+    if (!card || !this.id(key)) return card;
+    return { ...card, visibility: [{ condition: "state", entity: this.id(key), state }] };
   }
 }
 
@@ -499,7 +505,7 @@ function viewEnergia(c) {
 
   // leitura do BMS por UDS: chaves BMS_* (acumulados e balanceamento); entram todas as que existirem
   const bmsKeys = Object.keys(c.map)
-    .filter((k) => k.startsWith("BMS_"))
+    .filter((k) => k.startsWith("bms_"))
     .sort();
   const bms = bmsKeys.length
     ? c.section("BMS", "mdi:chip", [c.entities(null, bmsKeys.map((k) => ({ entity: c.map[k] })))])

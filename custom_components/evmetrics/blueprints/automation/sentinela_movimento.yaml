@@ -57,21 +57,28 @@ blueprint:
                 - integration: mobile_app
         notify_entities:
           name: Outros notificadores
-          description: Entidades notify (Telegram, e-mail...). Recebem só o texto.
+          description: >
+            Entidades notify (e-mail, outros apps...). Recebem só o texto. Não repita aqui o Telegram escolhido
+            abaixo, senão ele recebe duas mensagens.
           default: []
           selector:
             entity:
               multiple: true
               filter:
                 - domain: notify
-        telegram_chat_id:
-          name: Telegram com foto (chat ID)
+        telegram_entities:
+          name: Telegram com foto
           description: >
-            Opcional. Manda a foto pelo telegram_bot para este chat. A foto é gravada em /media/evmetrics; se o HA
-            disser "not allowed", inclua /media em homeassistant: allowlist_external_dirs.
-          default: ""
+            Opcional. Entidades notify do bot do Telegram (notify.telegram_bot_...) que recebem a foto. A foto é
+            gravada em /media/evmetrics; se o HA disser "not allowed", inclua /media em homeassistant:
+            allowlist_external_dirs.
+          default: []
           selector:
-            text:
+            entity:
+              multiple: true
+              filter:
+                - integration: telegram_bot
+                  domain: notify
         extra_actions:
           name: Ações extras
           description: "Opcional. Rodam depois dos avisos (variáveis disponíveis: quando, oque, onde, texto)."
@@ -85,7 +92,7 @@ max: 10
 variables:
   notify_devices: !input notify_devices
   notify_entities: !input notify_entities
-  telegram_chat_id: !input telegram_chat_id
+  telegram_entities: !input telegram_entities
   photo_camera: !input photo_camera
   dashboard_path: !input dashboard_path
 
@@ -146,7 +153,7 @@ actions:
           message: "{{ texto }}"
   - if:
       - condition: template
-        value_template: "{{ telegram_chat_id | string | trim != '' }}"
+        value_template: "{{ telegram_entities | count > 0 }}"
     then:
       - action: camera.snapshot
         continue_on_error: true
@@ -154,10 +161,11 @@ actions:
           entity_id: "{{ photo_camera }}"
         data:
           filename: /media/evmetrics/sentinela_ultimo.jpg
+      # formato novo do telegram_bot: entidades notify do bot em entity_id (o "target" com o chat foi descontinuado)
       - action: telegram_bot.send_photo
         continue_on_error: true
         data:
-          target: "{{ telegram_chat_id | int(telegram_chat_id) }}"
+          entity_id: "{{ telegram_entities }}"
           file: /media/evmetrics/sentinela_ultimo.jpg
           caption: "🚨 Movimento no carro — {{ texto }}"
   - choose: []

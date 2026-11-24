@@ -13,6 +13,7 @@ CONF_DEVICE = "device"
 CONF_SIDEBAR = "show_in_sidebar"
 CONF_TITLE = "title"
 CONF_IMAGE = "image"
+CONF_IMAGE_UPLOAD = "image_upload"
 CONF_CAMERAS = "live_cameras"
 
 DEFAULT_SIDEBAR = True
@@ -21,6 +22,10 @@ DEFAULT_SIDEBAR = True
 STATIC_URL = "/evmetrics_static"
 STRATEGY_FILE = "evmetrics-strategy.js"
 STRATEGY_TYPE = "evmetrics"  # usado no dashboard como "custom:evmetrics"
+
+# Imagem do carro enviada pelas opções: <config>/evmetrics/<entry_id>.<ext>, servida em /evmetrics_files/.
+UPLOAD_FOLDER = "evmetrics"
+FILES_URL = "/evmetrics_files"
 
 # Blueprints copiados para <config>/blueprints/automation/evmetrics/.
 BLUEPRINT_FOLDER = "evmetrics"

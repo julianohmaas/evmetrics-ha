@@ -26,12 +26,14 @@ from .const import (
     CONF_CAMERAS,
     CONF_DEVICE,
     CONF_IMAGE,
+    CONF_IMAGE_UPLOAD,
     CONF_NODE_ID,
     CONF_SIDEBAR,
     CONF_TITLE,
     DEFAULT_SIDEBAR,
     DOMAIN,
 )
+from .images import InvalidImage, save_uploaded_image
 
 MQTT_DOMAIN = "mqtt"
 DEFAULT_NAME = "BYD"
@@ -128,13 +130,28 @@ class EvMetricsOptionsFlow(OptionsFlow):
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Única tela de opções."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(data=user_input)
+            data = dict(user_input)
+            upload = data.pop(CONF_IMAGE_UPLOAD, None)
+            if upload:
+                try:
+                    data[CONF_IMAGE] = await self.hass.async_add_executor_job(
+                        save_uploaded_image, self.hass, upload, self.config_entry.entry_id
+                    )
+                except (InvalidImage, ValueError, OSError):
+                    errors[CONF_IMAGE_UPLOAD] = "invalid_image"
+            if not errors:
+                return self.async_create_entry(data=data)
 
         schema = vol.Schema(
             {
                 vol.Optional(CONF_TITLE): selector.TextSelector(),
                 vol.Optional(CONF_SIDEBAR, default=DEFAULT_SIDEBAR): selector.BooleanSelector(),
+                # enviar um arquivo (vira a URL abaixo) ou escrever a URL; vazio = o desenho do pacote
+                vol.Optional(CONF_IMAGE_UPLOAD): selector.FileSelector(
+                    selector.FileSelectorConfig(accept="image/png,image/jpeg,image/webp,image/svg+xml")
+                ),
                 # texto livre: aceita caminho relativo como /local/images/seal.png (o tipo URL do navegador recusa)
                 vol.Optional(CONF_IMAGE): selector.TextSelector(),
                 vol.Optional(CONF_CAMERAS, default=[]): selector.EntitySelector(
@@ -145,4 +162,5 @@ class EvMetricsOptionsFlow(OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=self.add_suggested_values_to_schema(schema, self.config_entry.options),
+            errors=errors,
         )

@@ -25,7 +25,16 @@ from homeassistant.loader import async_get_integration
 
 from . import dashboard
 from .blueprints import async_sync_blueprints
-from .const import CONF_NODE_ID, DOMAIN, MIN_APP_VERSION, STATIC_URL, STRATEGY_FILE
+from .const import (
+    CONF_NODE_ID,
+    DOMAIN,
+    FILES_URL,
+    MIN_APP_VERSION,
+    STATIC_URL,
+    STRATEGY_FILE,
+)
+from .images import folder as images_folder, remove_images
+from .resources import async_ensure_resource, async_remove_resource
 from .vehicle import (
     app_outdated,
     dashboard_title,
@@ -45,14 +54,30 @@ FRONTEND_DIR = Path(__file__).parent / "frontend"
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Frontend (strategy), websocket e blueprints: uma vez, valem para todas as entradas."""
     integration = await async_get_integration(hass, DOMAIN)
+    uploads = images_folder(hass)
+    await hass.async_add_executor_job(lambda: uploads.mkdir(parents=True, exist_ok=True))
     await hass.http.async_register_static_paths(
-        [StaticPathConfig(STATIC_URL, str(FRONTEND_DIR), cache_headers=False)]
+        [
+            StaticPathConfig(STATIC_URL, str(FRONTEND_DIR), cache_headers=False),
+            StaticPathConfig(FILES_URL, str(uploads), cache_headers=False),
+        ]
     )
     # ?v= muda a cada versão: o navegador não fica com a strategy velha em cache depois de uma atualização
-    add_extra_js_url(hass, f"{STATIC_URL}/{STRATEGY_FILE}?v={integration.version}")
+    url = strategy_url(integration.version)
+    add_extra_js_url(hass, url)
+    # também como recurso do Lovelace: vale para abas abertas antes da instalação (ver resources.py)
+    try:
+        await async_ensure_resource(hass, url)
+    except Exception:  # noqa: BLE001 - recurso é um extra; o add_extra_js_url já cobre depois de recarregar
+        _LOGGER.warning("Não deu para registrar a strategy nos recursos do dashboard", exc_info=True)
     websocket_api.async_register_command(hass, ws_vehicles)
     await async_sync_blueprints(hass)
     return True
+
+
+def strategy_url(version: str | None) -> str:
+    """URL da strategy com a versão (cache)."""
+    return f"{STATIC_URL}/{STRATEGY_FILE}?v={version}"
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -92,9 +117,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Limpa os avisos da entrada."""
+    """Limpa os avisos e a imagem da entrada; sem carros, tira o recurso do dashboard."""
     for key in ("app_outdated", "device_not_found", "dashboard_conflict", "dashboard_unsupported"):
         ir.async_delete_issue(hass, DOMAIN, f"{key}_{entry.entry_id}")
+    await hass.async_add_executor_job(remove_images, hass, entry.entry_id)
+    others = [e for e in hass.config_entries.async_entries(DOMAIN) if e.entry_id != entry.entry_id]
+    if not others:
+        await async_remove_resource(hass, strategy_url(None))
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:

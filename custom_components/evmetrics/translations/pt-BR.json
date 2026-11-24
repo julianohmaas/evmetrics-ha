@@ -29,15 +29,20 @@
         "data": {
           "title": "Título do dashboard",
           "show_in_sidebar": "Mostrar na barra lateral",
+          "image_upload": "Enviar imagem do carro",
           "image": "Imagem do carro (URL)",
           "live_cameras": "Câmeras ao vivo"
         },
         "data_description": {
           "title": "Vazio = o nome do carro.",
+          "image_upload": "PNG, JPEG, WebP ou SVG até 10 MB. Substitui a URL abaixo.",
           "image": "Por exemplo /local/images/meu-carro.png. Vazio = o desenho que vem no pacote.",
           "live_cameras": "Câmeras mostradas ao vivo na seção do sentinela (por exemplo as câmeras MJPEG do app)."
         }
       }
+    },
+    "error": {
+      "invalid_image": "O arquivo precisa ser uma imagem PNG, JPEG, WebP ou SVG de até 10 MB."
     }
   },
   "issues": {

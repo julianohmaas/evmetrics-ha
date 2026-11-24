@@ -115,7 +115,7 @@ test("chaves do registro em minúsculas (unique_id do app) acham os cartões", a
   const d = await generateDashboard({}, hassWith(v));
   const view = (p) => JSON.stringify(d.views.find((x) => x.path === p));
   assert.ok(view("carro").includes("sensor.byd_seal_statistic_remaining_battery_power"), "SOC no cartão do carro");
-  assert.equal(d.views.find((x) => x.path === "conducao").sections.length, 4, "condução com as 4 seções");
+  assert.equal(d.views.find((x) => x.path === "conducao").sections.length, 5, "condução com as 5 seções");
   assert.ok(view("energia").includes("sensor.byd_seal_battery_cell_delta_mv"), "células do CAN na energia");
 });
 

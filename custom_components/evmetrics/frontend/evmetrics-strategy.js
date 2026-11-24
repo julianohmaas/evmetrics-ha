@@ -222,10 +222,45 @@ class Ctx {
   }
 
   /** Seção com cabeçalho; some se não sobrou nenhum cartão. */
-  section(heading, icon, cards, extra = {}) {
+  section(heading, icon, cards, extra = {}, headingKeys = []) {
     const list = cards.flat().filter(Boolean);
     if (!list.length) return null;
-    return { type: "grid", cards: [{ type: "heading", heading, icon }, ...list], ...extra };
+    // estado das chaves de headingKeys à direita do cabeçalho
+    const badges = headingKeys
+      .map((k) => this.id(k))
+      .filter(Boolean)
+      .map((entity) => ({ type: "entity", entity, show_state: true, color: "state" }));
+    const head = { type: "heading", heading, icon, ...(badges.length ? { badges } : {}) };
+    return { type: "grid", cards: [head, ...list], ...extra };
+  }
+
+  /** Tile com o mini-gráfico do histórico embaixo (feature "trend-graph"). */
+  trend(key, name, hours = 24, extra = {}) {
+    return this.tile(key, name, { features: [{ type: "trend-graph", hours_to_show: hours }], ...extra });
+  }
+
+  /** Tile com barra de min a max (feature "bar-gauge"), para valores numa faixa conhecida. */
+  bar(key, name, min, max, extra = {}) {
+    return this.tile(key, name, { features: [{ type: "bar-gauge", min, max }], ...extra });
+  }
+
+  /** Badge de entidade (topo da view). */
+  badge(key, name, extra = {}) {
+    const entity = this.id(key);
+    if (!entity) return null;
+    return { type: "entity", entity, ...(name ? { name, show_name: true } : {}), ...extra };
+  }
+
+  /** Esconde o cartão enquanto a entidade não tem valor (carro desligado, sensor que só responde ligado). */
+  known(card) {
+    if (!card || !card.entity) return card;
+    return {
+      ...card,
+      visibility: [
+        ...(card.visibility || []),
+        { condition: "state", entity: card.entity, state_not: ["unknown", "unavailable"] },
+      ],
+    };
   }
 
   view(title, path, icon, sections, extra = {}) {
@@ -235,6 +270,7 @@ class Ctx {
       icon,
       type: "sections",
       max_columns: 3,
+      badges: headerBadges(this),
       sections: sections.filter(Boolean),
       ...extra,
     };
@@ -312,11 +348,29 @@ function socGauge(c) {
     max: 100,
     needle: true,
     severity: { red: 0, yellow: 20, green: 50 },
-    grid_options: { columns: 6 },
+    grid_options: { columns: 12 },
   };
 }
 
+/** Faixa de badges no topo de todas as views: o essencial do carro sempre à vista. */
+function headerBadges(c) {
+  const soc = c.has(KEYS.SOC_FINE) ? KEYS.SOC_FINE : KEYS.SOC;
+  return [
+    c.badge(soc, "Bateria"),
+    c.badge(KEYS.RANGE, "Autonomia"),
+    c.badge(KEYS.LOCK, "Portas"),
+    c.when(c.badge(KEYS.CHARGE_POWER, "Carregando", { icon: "mdi:ev-station", color: "green" }), KEYS.CHARGING, "on"),
+    c.badge(KEYS.SENTINEL_STATE, "Sentinela"),
+    c.badge(KEYS.LAST_SENT, "Último envio"),
+    c.when(c.badge(KEYS.CONNECTED, "App", { color: "red" }), KEYS.CONNECTED, "off"),
+  ].filter(Boolean);
+}
+
+const HALF = { grid_options: { columns: 6 } };
+const FULL = { grid_options: { columns: 12 } };
+
 // ------------------------------------------------------------------------------------------------ views
+// Grade de 3 colunas: cada seção é uma coluna (o mapa e os históricos largos ocupam 2), na ordem em que aparecem.
 
 function viewCarro(c) {
   const v = c.v;
@@ -328,17 +382,16 @@ function viewCarro(c) {
         }
       : null;
 
+  // linha 1: o carro (1 coluna) + o mapa (2 colunas)
   const visao = c.section("Visão geral", "mdi:car-electric", [
     warning,
     vehicleCard(c),
-    socGauge(c),
-    c.tile(KEYS.RANGE, "Autonomia"),
-    c.tile(KEYS.GEAR, "Marcha"),
-    c.tile(KEYS.SPEED, "Velocidade"),
+    c.tile(KEYS.ENERGY, "Energia"),
     c.tile(KEYS.OUT_TEMP, "Externa"),
-    c.tile(KEYS.AC_TEMP, "Ar ajustado"),
-    c.tile(KEYS.V12, "Bateria 12 V"),
-    c.tile(KEYS.DRIVE_MODE, "Modo"),
+    c.known(c.tile(KEYS.GEAR, "Marcha")),
+    c.known(c.tile(KEYS.DRIVE_MODE, "Modo")),
+    c.known(c.tile(KEYS.SPEED, "Velocidade")),
+    c.tile(KEYS.ODO, "Hodômetro"),
   ]);
 
   const mapa = c.id(KEYS.LOCATION)
@@ -351,14 +404,15 @@ function viewCarro(c) {
             type: "map",
             entities: [{ entity: c.id(KEYS.LOCATION) }, { entity: "zone.home" }],
             hours_to_show: 24,
-            default_zoom: 14,
+            default_zoom: 15,
             theme_mode: "auto",
-            grid_options: { columns: "full", rows: 8 },
+            grid_options: { columns: "full", rows: 9 },
           },
         ],
       }
     : null;
 
+  // linha 2: portas e janelas, clima e luzes, conexão e 12 V
   const aberturas = [
     [KEYS.DOOR_LF, "Porta E"],
     [KEYS.DOOR_RF, "Porta D"],
@@ -369,31 +423,57 @@ function viewCarro(c) {
     [KEYS.WIN_RR, "Janela TD"],
   ];
   const abertoAgora = c.rows([[KEYS.LOCK, "Destrancado"], ...aberturas]);
-  const carro = c.section("Carro", "mdi:car-door", [
-    abertoAgora.length
-      ? {
-          type: "entity-filter",
-          entities: abertoAgora,
-          conditions: [{ state: "on" }],
-          show_empty: false,
-          card: { type: "entities", title: "⚠️ Aberto agora", state_color: true },
-        }
-      : null,
-    c.glance("Portas e janelas", [[KEYS.LOCK, "Trava"], ...aberturas], { columns: 4 }),
+  const portas = c.section(
+    "Portas e janelas",
+    "mdi:car-door",
+    [
+      abertoAgora.length
+        ? {
+            type: "entity-filter",
+            entities: abertoAgora,
+            conditions: [{ state: "on" }],
+            show_empty: false,
+            card: { type: "entities", title: "⚠️ Aberto agora", state_color: true },
+          }
+        : null,
+      c.glance(null, aberturas, { columns: 4 }),
+      c.glance(
+        "Abertura das janelas",
+        [
+          [KEYS.WINP_LF, "DE"],
+          [KEYS.WINP_RF, "DD"],
+          [KEYS.WINP_LR, "TE"],
+          [KEYS.WINP_RR, "TD"],
+        ],
+        { columns: 4 }
+      ),
+    ],
+    {},
+    [KEYS.LOCK]
+  );
+
+  const clima = c.section("Clima e luzes", "mdi:air-conditioner", [
+    c.tile(KEYS.AC, "Ar-condicionado"),
+    c.known(c.tile(KEYS.AC_TEMP, "Temperatura do ar")),
     c.glance(
-      "Luzes",
+      null,
       [
         [KEYS.LOW_BEAM, "Farol"],
         [KEYS.FOG, "Neblina"],
         [KEYS.HAZARD, "Alerta"],
         [KEYS.TURN, "Setas"],
         [KEYS.PARK, "Freio de mão"],
-        [KEYS.AC, "Ar"],
       ],
-      { columns: 3 }
+      { columns: 5 }
     ),
+  ]);
+
+  const conexao = c.section("Conexão e 12 V", "mdi:car-battery", [
     c.tile(KEYS.CONNECTED, "App conectado"),
     c.tile(KEYS.LAST_SENT, "Último envio"),
+    c.trend(KEYS.V12, "Bateria 12 V", 48, FULL),
+    c.tile(KEYS.DCDC, "DC-DC"),
+    c.tile(KEYS.AWAKE, "Tempo acordado"),
     c.history(null, 48, [
       [KEYS.CONNECTED, "Conectado"],
       [KEYS.POWER_LEVEL, "Energia"],
@@ -401,20 +481,7 @@ function viewCarro(c) {
     ]),
   ]);
 
-  const repouso = c.section("12 V e repouso", "mdi:car-battery", [
-    c.tile(KEYS.V12, "12 V"),
-    c.tile(KEYS.DCDC, "DC-DC"),
-    c.tile(KEYS.AWAKE, "Tempo acordado"),
-    c.tile(KEYS.CURRENT, "Corrente do pack"),
-    c.history("12 V, DC-DC e tempo acordado (48 h)", 48, [
-      [KEYS.V12, "12 V"],
-      [KEYS.DCDC, "DC-DC"],
-      [KEYS.AWAKE, "Tempo acordado"],
-    ]),
-    c.history("SOC em repouso (48 h)", 48, [[KEYS.SOC_FINE, "SOC"]]),
-  ]);
-
-  return c.view(v.title, "carro", "mdi:car-electric", [visao, mapa, carro, repouso]);
+  return c.view(v.title, "carro", "mdi:car-electric", [visao, mapa, portas, clima, conexao]);
 }
 
 function viewSentinela(c) {
@@ -426,24 +493,26 @@ function viewSentinela(c) {
     c.attr(KEYS.SENTINEL_STATE, "reason", "Motivo"),
     c.attr(KEYS.SENTINEL_STATE, "profile", "Área"),
   ]);
-  const foto = c.id(KEYS.SENTINEL_PHOTO)
-    ? {
-        type: "picture-entity",
-        entity: c.id(KEYS.SENTINEL_PHOTO),
-        name: "Último disparo",
-        show_state: false,
-        camera_view: "auto",
-      }
-    : null;
   const sentinela = c.section("Sentinela", "mdi:cctv", [
-    c.tile(KEYS.SENTINEL_STATE, "Sentinela"),
+    c.tile(KEYS.SENTINEL_STATE, "Estado"),
     c.tile(KEYS.SENTINEL_SWITCH, "Ativo", {
       features: [{ type: "toggle" }],
       features_position: "inline",
     }),
-    foto,
     evento,
   ]);
+
+  const foto = c.id(KEYS.SENTINEL_PHOTO)
+    ? c.section("Último disparo", "mdi:camera", [
+        {
+          type: "picture-entity",
+          entity: c.id(KEYS.SENTINEL_PHOTO),
+          show_name: false,
+          show_state: false,
+          camera_view: "auto",
+        },
+      ])
+    : null;
 
   const logbookTargets = [c.id(KEYS.SENTINEL_EVENT), c.id(KEYS.SENTINEL_STATE)].filter(Boolean);
   const historico = logbookTargets.length
@@ -452,15 +521,26 @@ function viewSentinela(c) {
       ])
     : null;
 
-  const cameras = (c.v.cameras || []).map((entity) => ({
-    type: "picture-entity",
-    entity,
-    show_state: false,
-    camera_view: "live",
-  }));
-  const aoVivo = cameras.length ? c.section("Ao vivo", "mdi:video", cameras) : null;
+  // câmeras ao vivo (opção da integração): somem enquanto estão indisponíveis (carro fora da rede)
+  const cams = c.v.cameras || [];
+  const aoVivo = cams.length
+    ? c.section(
+        "Ao vivo",
+        "mdi:video",
+        cams.map((entity) =>
+          c.known({
+            type: "picture-entity",
+            entity,
+            show_state: false,
+            camera_view: "live",
+            grid_options: { columns: cams.length > 1 ? 6 : 12 },
+          })
+        ),
+        cams.length > 1 ? { column_span: 2 } : {}
+      )
+    : null;
 
-  return c.view("Sentinela", "sentinela", "mdi:cctv", [sentinela, aoVivo, historico]);
+  return c.view("Sentinela", "sentinela", "mdi:cctv", [sentinela, foto, historico, aoVivo]);
 }
 
 function viewEnergia(c) {
@@ -468,7 +548,7 @@ function viewEnergia(c) {
     socGauge(c),
     c.tile(KEYS.ENERGY, "Energia restante"),
     c.tile(KEYS.RANGE, "Autonomia"),
-    c.tile(KEYS.CURRENT, "Corrente"),
+    c.trend(KEYS.CURRENT, "Corrente", 24, FULL),
     c.tile(KEYS.DISCH_MAX, "Descarga máx."),
     c.tile(KEYS.CHG_MAX, "Recarga máx."),
     c.entities("Saúde", [
@@ -477,39 +557,6 @@ function viewEnergia(c) {
       [KEYS.CAPACITY, "Capacidade"],
     ]),
   ]);
-
-  const celulas = c.section("Células e temperaturas", "mdi:car-battery", [
-    c.tile(KEYS.CAN_MIN, "Mínima"),
-    c.tile(KEYS.CAN_MAX, "Máxima"),
-    c.tile(KEYS.CAN_DELTA, "Diferença"),
-    c.tile(KEYS.PACK_V, "Pack"),
-    c.entities(null, [
-      [KEYS.CAN_AVG, "Média"],
-      [KEYS.CAN_MIN_NUM, "Nº da mínima"],
-      [KEYS.CAN_MAX_NUM, "Nº da máxima"],
-      [KEYS.BYD_DELTA, "Diferença (BYD)"],
-      [KEYS.TEMP_MIN, "Temperatura mín."],
-      [KEYS.TEMP_AVG, "Temperatura média"],
-      [KEYS.TEMP_MAX, "Temperatura máx."],
-    ]),
-    c.history("Células (24 h)", 24, [
-      [KEYS.CELL_MIN, "Mínima"],
-      [KEYS.CELL_MAX, "Máxima"],
-    ]),
-    c.history("Temperatura da bateria (24 h)", 24, [
-      [KEYS.TEMP_MIN, "Mín."],
-      [KEYS.TEMP_MAX, "Máx."],
-      [KEYS.OUT_TEMP, "Externa"],
-    ]),
-  ]);
-
-  // leitura do BMS por UDS: chaves BMS_* (acumulados e balanceamento); entram todas as que existirem
-  const bmsKeys = Object.keys(c.map)
-    .filter((k) => k.startsWith("bms_"))
-    .sort();
-  const bms = bmsKeys.length
-    ? c.section("BMS", "mdi:chip", [c.entities(null, bmsKeys.map((k) => ({ entity: c.map[k] })))])
-    : null;
 
   const carregando = c.when(
     {
@@ -520,6 +567,7 @@ function viewEnergia(c) {
       max: 150,
       needle: true,
       severity: { green: 0, yellow: 11.5, red: 100 },
+      grid_options: { columns: 12 },
     },
     KEYS.CHARGING,
     "on"
@@ -555,30 +603,88 @@ function viewEnergia(c) {
     ),
     c.tile(KEYS.CHARGING, "Carregando"),
     c.tile(KEYS.PLUG, "Plugue"),
-    c.tile(KEYS.GUN, "Conector"),
-    c.tile(KEYS.CHARGE_DISPLAY, "Estado no painel"),
+    c.known(c.tile(KEYS.GUN, "Conector")),
+    c.known(c.tile(KEYS.CHARGE_DISPLAY, "Estado no painel")),
     ultima,
-    c.history(null, 24, [
-      [KEYS.CHARGE_POWER, "Potência de carga"],
-      [KEYS.SOC, "SOC"],
+  ]);
+
+  const celulas = c.section("Células e temperaturas", "mdi:car-battery", [
+    c.tile(KEYS.CAN_MIN, "Mínima"),
+    c.tile(KEYS.CAN_MAX, "Máxima"),
+    c.trend(KEYS.CAN_DELTA, "Diferença", 24, FULL),
+    c.tile(KEYS.PACK_V, "Pack"),
+    c.tile(KEYS.CAN_AVG, "Média"),
+    c.entities(null, [
+      [KEYS.CAN_MIN_NUM, "Nº da mínima"],
+      [KEYS.CAN_MAX_NUM, "Nº da máxima"],
+      [KEYS.BYD_DELTA, "Diferença (BYD)"],
+      [KEYS.TEMP_MIN, "Temperatura mín."],
+      [KEYS.TEMP_AVG, "Temperatura média"],
+      [KEYS.TEMP_MAX, "Temperatura máx."],
     ]),
   ]);
 
-  return c.view("Energia", "energia", "mdi:battery-charging", [bateria, recarga, celulas, bms]);
+  // linha 2: históricos (2 colunas) + BMS
+  const historico = c.section(
+    "Últimas 24 h",
+    "mdi:chart-line",
+    [
+      c.history(
+        "Células",
+        24,
+        [
+          [KEYS.CELL_MIN, "Mínima"],
+          [KEYS.CELL_MAX, "Máxima"],
+        ],
+        HALF
+      ),
+      c.history(
+        "Temperatura da bateria",
+        24,
+        [
+          [KEYS.TEMP_MIN, "Mín."],
+          [KEYS.TEMP_MAX, "Máx."],
+          [KEYS.OUT_TEMP, "Externa"],
+        ],
+        HALF
+      ),
+      c.history(
+        "Recarga",
+        24,
+        [
+          [KEYS.CHARGE_POWER, "Potência de carga"],
+          [KEYS.SOC, "SOC"],
+        ],
+        FULL
+      ),
+    ],
+    { column_span: 2 }
+  );
+
+  // leitura do BMS por UDS: chaves BMS_* (acumulados e balanceamento); entram todas as que existirem
+  const bmsKeys = Object.keys(c.map)
+    .filter((k) => k.startsWith("bms_"))
+    .sort();
+  const bms = bmsKeys.length
+    ? c.section("BMS", "mdi:chip", [c.entities(null, bmsKeys.map((k) => ({ entity: c.map[k] })))])
+    : null;
+
+  return c.view("Energia", "energia", "mdi:battery-charging", [bateria, recarga, celulas, historico, bms]);
 }
 
 function viewConducao(c) {
   const conducao = c.section("Condução", "mdi:steering", [
-    c.tile(KEYS.DRIVE_MODE, "Modo"),
-    c.tile(KEYS.REGEN, "Regeneração"),
-    c.tile(KEYS.SNOW, "Modo neve"),
-    c.tile(KEYS.ESC, "ESC"),
-    c.tile(KEYS.TRACTION, "Potência de tração"),
-    c.tile(KEYS.SPEED, "Velocidade"),
-    c.tile(KEYS.ACCEL, "Acelerador"),
-    c.tile(KEYS.BRAKE, "Freio"),
-    c.tile(KEYS.STEER, "Volante"),
-    c.tile(KEYS.SLOPE, "Inclinação"),
+    c.known(c.tile(KEYS.DRIVE_MODE, "Modo")),
+    c.known(c.tile(KEYS.GEAR, "Marcha")),
+    c.known(c.tile(KEYS.REGEN, "Regeneração")),
+    c.known(c.tile(KEYS.SNOW, "Modo neve")),
+    c.known(c.tile(KEYS.ESC, "ESC")),
+    c.known(c.tile(KEYS.SPEED, "Velocidade")),
+    c.known(c.trend(KEYS.TRACTION, "Potência de tração", 1, FULL)),
+    c.known(c.bar(KEYS.ACCEL, "Acelerador", 0, 100)),
+    c.known(c.bar(KEYS.BRAKE, "Freio", 0, 100)),
+    c.known(c.tile(KEYS.STEER, "Volante")),
+    c.known(c.tile(KEYS.SLOPE, "Inclinação")),
   ]);
 
   const motores = c.section("Motores", "mdi:engine", [
@@ -603,14 +709,9 @@ function viewConducao(c) {
       [KEYS.I_FRONT, "Corrente"],
       [KEYS.BUS_FRONT, "Barramento"],
     ]),
-    c.history("Temperaturas (24 h)", 24, [
-      [KEYS.M_REAR, "Motor T"],
-      [KEYS.M_FRONT, "Motor D"],
-      [KEYS.IPM_REAR, "Inversor T"],
-      [KEYS.IPM_FRONT, "Inversor D"],
-    ]),
   ]);
 
+  // pneus na posição do carro: dianteiros em cima, esquerda à esquerda
   const pneus = c.section("Pneus", "mdi:car-tire-alert", [
     c.tile(KEYS.TP_LF, "Dianteiro E"),
     c.tile(KEYS.TP_RF, "Dianteiro D"),
@@ -628,6 +729,7 @@ function viewConducao(c) {
     ),
   ]);
 
+  // linha 2: viagem + temperaturas dos motores (2 colunas)
   const viagem = c.section("Viagem", "mdi:map-marker-distance", [
     c.tile(KEYS.ODO, "Hodômetro"),
     c.tile(KEYS.CONS50, "Últimos 50 km"),
@@ -637,39 +739,43 @@ function viewConducao(c) {
       [KEYS.DRIVE_TIME, "Tempo dirigindo"],
       [KEYS.CONS_TOTAL, "Consumo total"],
     ]),
-    c.glance(
-      "Janelas (%)",
-      [
-        [KEYS.WINP_LF, "DE"],
-        [KEYS.WINP_RF, "DD"],
-        [KEYS.WINP_LR, "TE"],
-        [KEYS.WINP_RR, "TD"],
-      ],
-      { columns: 4 }
-    ),
   ]);
 
-  return c.view("Condução", "conducao", "mdi:steering", [conducao, motores, pneus, viagem]);
+  const temperaturas = c.section(
+    "Temperaturas dos motores (24 h)",
+    "mdi:thermometer",
+    [
+      c.history(null, 24, [
+        [KEYS.M_REAR, "Motor T"],
+        [KEYS.M_FRONT, "Motor D"],
+        [KEYS.IPM_REAR, "Inversor T"],
+        [KEYS.IPM_FRONT, "Inversor D"],
+      ]),
+    ],
+    { column_span: 2 }
+  );
+
+  return c.view("Condução", "conducao", "mdi:steering", [conducao, motores, pneus, viagem, temperaturas]);
 }
 
 function viewGraficos(c) {
-  const change = (title, days, period, list, chart_type = "bar") => {
-    const card = c.stats(title, days, list, { stat_types: ["change"], period, chart_type });
-    return card;
-  };
+  const change = (title, days, period, list, chart_type = "bar") =>
+    c.stats(title, days, list, { stat_types: ["change"], period, chart_type });
   const uso = c.section("Uso", "mdi:chart-bar", [
     change("Percurso diário", 30, "day", [[KEYS.ODO, "km"]]),
     change("Energia consumida por dia", 30, "day", [[KEYS.CONS_TOTAL, "kWh"]]),
     c.stats("Consumo últimos 50 km (média diária)", 30, [[KEYS.CONS50]], { stat_types: ["mean"] }),
-    c.stats("SOC (30 dias)", 30, [[KEYS.SOC]]),
   ]);
   const bateria = c.section("Bateria", "mdi:chart-line", [
     c.stats("Diferença entre células (7 dias)", 7, [[KEYS.CAN_DELTA], [KEYS.BYD_DELTA]], {
       period: "hour",
       stat_types: ["max"],
     }),
-    c.stats("Bateria 12 V (14 dias)", 14, [[KEYS.V12]]),
+    c.stats("SOC (30 dias)", 30, [[KEYS.SOC]]),
     c.stats("SOH (90 dias)", 90, [[KEYS.SOH], [KEYS.SOH_CALC]], { period: "week", stat_types: ["mean"] }),
+  ]);
+  const doze = c.section("12 V e motores", "mdi:car-battery", [
+    c.stats("Bateria 12 V (14 dias)", 14, [[KEYS.V12]]),
     c.history("Motores (24 h)", 24, [
       [KEYS.M_REAR, "Motor T"],
       [KEYS.M_FRONT, "Motor D"],
@@ -677,7 +783,7 @@ function viewGraficos(c) {
       [KEYS.BUS_FRONT, "Barramento D"],
     ]),
   ]);
-  return c.view("Gráficos", "graficos", "mdi:chart-line", [uso, bateria]);
+  return c.view("Gráficos", "graficos", "mdi:chart-line", [uso, bateria, doze]);
 }
 
 /** Todas as entidades do carro, por domínio: sensores novos do app aparecem aqui sem atualizar o pacote. */

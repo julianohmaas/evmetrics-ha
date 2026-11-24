@@ -1,0 +1,33 @@
+name: Release
+
+# Publicar uma versão: mude "version" no manifest.json, faça o commit e crie a tag com o MESMO número
+# (git tag 0.2.0 && git push --tags). Este fluxo confere o número e cria a release do GitHub; é ela que o
+# Marketplace lê como atualização (uma tag sozinha não basta).
+
+on:
+  push:
+    tags:
+      - "*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag igual ao manifest
+        run: |
+          v=$(python3 -c "import json;print(json.load(open('custom_components/evmetrics/manifest.json'))['version'])")
+          if [ "$v" != "${GITHUB_REF_NAME}" ]; then
+            echo "manifest.json tem $v, mas a tag é ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+      - name: Criar release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "${GITHUB_REF_NAME}" in *b*|*rc*) prerelease="--prerelease" ;; esac
+          gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --generate-notes $prerelease

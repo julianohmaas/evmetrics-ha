@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" role="img" aria-label="Sedã elétrico">
+  <!-- Desenho genérico de um sedã elétrico de perfil (não é imagem da BYD). Espaço livre no alto (SOC/autonomia)
+       e embaixo (ícones de estado) para os textos do cartão. -->
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a525c"/>
+      <stop offset="0.45" stop-color="#2a2f35"/>
+      <stop offset="1" stop-color="#16191d"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7d8b99"/>
+      <stop offset="1" stop-color="#2c343d"/>
+    </linearGradient>
+    <radialGradient id="rim" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#c9d0d8"/>
+      <stop offset="0.7" stop-color="#8a939d"/>
+      <stop offset="1" stop-color="#4b525a"/>
+    </radialGradient>
+    <radialGradient id="shadow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#000" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <ellipse cx="400" cy="318" rx="330" ry="22" fill="url(#shadow)"/>
+
+  <!-- carroceria: nariz baixo à esquerda, teto em arco, traseira curta (fastback) -->
+  <path d="M86 268
+           C84 246 96 232 122 226
+           L226 206
+           C262 176 310 150 372 142
+           C430 136 500 138 548 152
+           C590 164 628 186 662 208
+           L700 214
+           C722 218 734 232 734 252
+           L734 274
+           C734 288 724 296 708 296
+           L112 296
+           C96 296 87 286 86 268 Z"
+        fill="url(#body)" stroke="#5d6670" stroke-width="1.5"/>
+
+  <!-- vidros -->
+  <path d="M248 208 C282 182 322 162 374 156 L396 155 L404 208 Z" fill="url(#glass)"/>
+  <path d="M418 155 C466 154 512 158 548 170 C576 180 604 194 626 208 L428 208 Z" fill="url(#glass)"/>
+  <path d="M404 208 L396 155 L418 155 L428 208 Z" fill="#1d2126"/>
+
+  <!-- linha de cintura e maçanetas -->
+  <path d="M120 236 C260 226 520 224 712 232" fill="none" stroke="#6b7580" stroke-width="2" opacity="0.7"/>
+  <rect x="330" y="232" width="34" height="5" rx="2.5" fill="#9aa3ad" opacity="0.8"/>
+  <rect x="500" y="232" width="34" height="5" rx="2.5" fill="#9aa3ad" opacity="0.8"/>
+
+  <!-- farol e lanterna -->
+  <path d="M96 244 C110 236 134 232 156 232 L150 244 C130 246 112 248 96 250 Z" fill="#e8eef5"/>
+  <path d="M700 222 C716 224 728 232 732 244 L712 244 C706 236 702 230 700 222 Z" fill="#d6283a"/>
+
+  <!-- rodas -->
+  <g>
+    <circle cx="214" cy="296" r="46" fill="#121417"/>
+    <circle cx="214" cy="296" r="30" fill="url(#rim)"/>
+    <circle cx="214" cy="296" r="8" fill="#3a4047"/>
+    <circle cx="594" cy="296" r="46" fill="#121417"/>
+    <circle cx="594" cy="296" r="30" fill="url(#rim)"/>
+    <circle cx="594" cy="296" r="8" fill="#3a4047"/>
+  </g>
+</svg>

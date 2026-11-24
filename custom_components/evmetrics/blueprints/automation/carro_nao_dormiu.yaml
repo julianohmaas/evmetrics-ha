@@ -1,0 +1,137 @@
+blueprint:
+  name: "EvMetrics: carro não dormiu"
+  author: EvMetrics
+  description: >
+    Avisa quando o carro está desligado há um tempo e mesmo assim continua acordado (MCU/DC-DC ligados), o que gasta
+    bateria (~0,2 %/h no Seal). O sinal é o "Tempo acordado no ciclo", que só anda com o carro acordado. A MCU acorda
+    sozinha por ~1 min de vez em quando: isso é normal e não avisa. Avisa no máximo uma vez a cada N horas.
+
+    Este arquivo é instalado e atualizado pela integração EvMetrics: não edite, use as entradas abaixo.
+  domain: automation
+  source_url: https://github.com/julianohmaas/evmetrics-ha/blob/main/custom_components/evmetrics/blueprints/automation/carro_nao_dormiu.yaml
+  homeassistant:
+    min_version: "2026.11.0"
+  input:
+    carro:
+      name: Carro
+      icon: mdi:car-electric
+      input:
+        awake_sensor:
+          name: Tempo acordado no ciclo
+          description: Sensor "Tempo acordado no ciclo" (min).
+          default: sensor.byd_seal_tempo_acordado_no_ciclo
+          selector:
+            entity:
+              filter:
+                - integration: mqtt
+                  domain: sensor
+        power_sensor:
+          name: Estado de energia
+          description: Sensor "Estado de energia" (desligado / ACC / ligado).
+          default: sensor.byd_seal_estado_de_energia
+          selector:
+            entity:
+              filter:
+                - integration: mqtt
+                  domain: sensor
+        awake_minutes:
+          name: Acordado por mais de
+          default: 10
+          selector:
+            number:
+              min: 2
+              max: 60
+              unit_of_measurement: min
+        off_for:
+          name: Desligado há pelo menos
+          default:
+            hours: 1
+          selector:
+            duration: {}
+        cooldown_hours:
+          name: Intervalo mínimo entre avisos
+          default: 6
+          selector:
+            number:
+              min: 1
+              max: 48
+              unit_of_measurement: h
+    avisos:
+      name: Avisos
+      icon: mdi:bell-ring
+      input:
+        notify_devices:
+          name: Celulares (app do Home Assistant)
+          default: []
+          selector:
+            device:
+              multiple: true
+              filter:
+                - integration: mobile_app
+        notify_entities:
+          name: Outros notificadores
+          description: Entidades notify (Telegram, e-mail...).
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: notify
+        extra_actions:
+          name: Ações extras
+          default: []
+          selector:
+            action: {}
+
+mode: single
+
+variables:
+  notify_devices: !input notify_devices
+  notify_entities: !input notify_entities
+  awake_sensor: !input awake_sensor
+  cooldown_hours: !input cooldown_hours
+
+triggers:
+  - trigger: numeric_state
+    entity_id: !input awake_sensor
+    above: !input awake_minutes
+
+conditions:
+  - condition: state
+    entity_id: !input power_sensor
+    state: desligado
+    for: !input off_for
+  - condition: template
+    value_template: >
+      {{ this.attributes.last_triggered is none
+         or now() - this.attributes.last_triggered > timedelta(hours=cooldown_hours | float(6)) }}
+
+actions:
+  - variables:
+      titulo: "🔋 O carro não está dormindo"
+      texto: >
+        Desligado e ainda acordado (tempo acordado no ciclo: {{ states(awake_sensor) }} min). Isso gasta bateria
+        (~0,2 %/h).
+  - repeat:
+      for_each: "{{ notify_devices }}"
+      sequence:
+        - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+          continue_on_error: true
+          data:
+            title: "{{ titulo }}"
+            message: "{{ texto }}"
+            data:
+              tag: evmetrics-nao-dormiu
+  - if:
+      - condition: template
+        value_template: "{{ notify_entities | count > 0 }}"
+    then:
+      - action: notify.send_message
+        continue_on_error: true
+        target:
+          entity_id: "{{ notify_entities }}"
+        data:
+          title: "{{ titulo }}"
+          message: "{{ texto }}"
+  - choose: []
+    default: !input extra_actions

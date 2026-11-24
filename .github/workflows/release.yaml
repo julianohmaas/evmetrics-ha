@@ -16,7 +16,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Tag igual ao manifest
         run: |
           v=$(python3 -c "import json;print(json.load(open('custom_components/evmetrics/manifest.json'))['version'])")

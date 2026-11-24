@@ -1,0 +1,61 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "EvMetrics",
+        "description": "Escolha o dispositivo do carro criado pelo app EvMetrics no MQTT Discovery (Configurações › Dispositivos). Normalmente ele é descoberto sozinho assim que o app conecta ao broker.",
+        "data": {
+          "device": "Dispositivo do carro"
+        }
+      },
+      "confirm": {
+        "title": "EvMetrics",
+        "description": "Adicionar o dashboard e os blueprints de automação de **{name}**?"
+      }
+    },
+    "error": {
+      "not_mqtt_device": "Este dispositivo não foi criado pelo MQTT Discovery."
+    },
+    "abort": {
+      "already_configured": "Este carro já está configurado.",
+      "not_supported": "Esta mensagem MQTT não é de um dispositivo do EvMetrics."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Dashboard do carro",
+        "data": {
+          "title": "Título do dashboard",
+          "show_in_sidebar": "Mostrar na barra lateral",
+          "image": "Imagem do carro (URL)",
+          "live_cameras": "Câmeras ao vivo"
+        },
+        "data_description": {
+          "title": "Vazio = o nome do carro.",
+          "image": "Por exemplo /local/images/meu-carro.png. Vazio = o desenho que vem no pacote.",
+          "live_cameras": "Câmeras mostradas ao vivo na seção do sentinela (por exemplo as câmeras MJPEG do app)."
+        }
+      }
+    }
+  },
+  "issues": {
+    "app_outdated": {
+      "title": "App EvMetrics mais antigo que este pacote",
+      "description": "O carro {title} roda o EvMetrics {version}, mas este pacote espera o {min_version} ou mais novo. Alguns cartões e automações podem mostrar entidades faltando até o app ser atualizado."
+    },
+    "device_not_found": {
+      "title": "Carro do EvMetrics não encontrado",
+      "description": "Não existe dispositivo MQTT com o identificador `{node_id}` (carro {title}). Confira se o app está conectado ao broker e com o MQTT Discovery ligado, ou remova e adicione a integração de novo."
+    },
+    "dashboard_conflict": {
+      "title": "Endereço do dashboard já em uso",
+      "description": "Já existe um dashboard em /{url_path}, então o dashboard do EvMetrics de {title} não foi criado. Renomeie ou apague esse dashboard e recarregue a integração, ou adicione o dashboard do EvMetrics à mão em Configurações › Painéis › Adicionar painel."
+    },
+    "dashboard_unsupported": {
+      "title": "Não foi possível registrar o dashboard",
+      "description": "Esta versão do Home Assistant não aceitou o dashboard do EvMetrics de {title}. Adicione à mão em Configurações › Painéis › Adicionar painel › EvMetrics."
+    }
+  }
+}

@@ -1,0 +1,123 @@
+blueprint:
+  name: "EvMetrics: fim da recarga"
+  author: EvMetrics
+  description: >
+    Avisa quando uma recarga termina, com o resumo que o carro manda (energia, SOC, duração, tipo AC/DC). Tipos do
+    evento: "concluida" (chegou ao limite), "interrompida" (plugue tirado antes) e "parou" (o carregador parou antes
+    do limite: horário, solar...). Escolha quais avisam.
+
+    Este arquivo é instalado e atualizado pela integração EvMetrics: não edite, use as entradas abaixo.
+  domain: automation
+  source_url: https://github.com/julianohmaas/evmetrics-ha/blob/main/custom_components/evmetrics/blueprints/automation/recarga.yaml
+  homeassistant:
+    min_version: "2026.11.0"
+  input:
+    carro:
+      name: Carro
+      icon: mdi:car-electric
+      input:
+        charge_event:
+          name: Evento de recarga
+          description: Entidade "Recarga" do carro (event.*_recarga).
+          default: event.byd_seal_recarga
+          selector:
+            entity:
+              filter:
+                - integration: mqtt
+                  domain: event
+        event_types:
+          name: Avisar quando
+          default: [concluida, interrompida, parou]
+          selector:
+            select:
+              multiple: true
+              options:
+                - label: Concluída
+                  value: concluida
+                - label: Interrompida (plugue tirado)
+                  value: interrompida
+                - label: Parou antes do limite
+                  value: parou
+    avisos:
+      name: Avisos
+      icon: mdi:bell-ring
+      input:
+        notify_devices:
+          name: Celulares (app do Home Assistant)
+          default: []
+          selector:
+            device:
+              multiple: true
+              filter:
+                - integration: mobile_app
+        notify_entities:
+          name: Outros notificadores
+          description: Entidades notify (Telegram, e-mail...).
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: notify
+        extra_actions:
+          name: Ações extras
+          default: []
+          selector:
+            action: {}
+
+mode: queued
+
+variables:
+  notify_devices: !input notify_devices
+  notify_entities: !input notify_entities
+  event_types: !input event_types
+
+triggers:
+  - trigger: state
+    entity_id: !input charge_event
+
+conditions:
+  - condition: template
+    value_template: >
+      {{ trigger.from_state is not none
+         and trigger.from_state.state not in ['unavailable', 'unknown']
+         and trigger.to_state.state not in ['unavailable', 'unknown']
+         and trigger.to_state.attributes.event_type in event_types }}
+
+actions:
+  - variables:
+      titulo: >
+        {% set a = trigger.to_state.attributes %}
+        {{ {'concluida': '✅ Recarga concluída', 'interrompida': '⚠️ Recarga interrompida',
+            'parou': '⏸️ Recarga parou'}.get(a.event_type, '🔌 Recarga') }}
+      texto: >
+        {% set a = trigger.to_state.attributes %}
+        {% set partes = [] %}
+        {% if a.kwh is defined %}{% set partes = partes + [a.kwh ~ ' kWh'] %}{% endif %}
+        {% if a.soc_start is defined and a.soc_end is defined %}{% set partes = partes + [a.soc_start ~ ' → ' ~ a.soc_end ~ ' %'] %}{% endif %}
+        {% if a.duration_min is defined %}{% set partes = partes + [(a.duration_min | int // 60) ~ ' h ' ~ (a.duration_min | int % 60) ~ ' min'] %}{% endif %}
+        {% if a.type is defined %}{% set partes = partes + [a.type] %}{% endif %}
+        {{ partes | join(' · ') }}
+  - repeat:
+      for_each: "{{ notify_devices }}"
+      sequence:
+        - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+          continue_on_error: true
+          data:
+            title: "{{ titulo }}"
+            message: "{{ texto }}"
+            data:
+              tag: evmetrics-recarga
+  - if:
+      - condition: template
+        value_template: "{{ notify_entities | count > 0 }}"
+    then:
+      - action: notify.send_message
+        continue_on_error: true
+        target:
+          entity_id: "{{ notify_entities }}"
+        data:
+          title: "{{ titulo }}"
+          message: "{{ texto }}"
+  - choose: []
+    default: !input extra_actions

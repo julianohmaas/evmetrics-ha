@@ -1,0 +1,61 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "EvMetrics",
+        "description": "Pick the car device created by the EvMetrics app over MQTT Discovery (Settings › Devices). Normally it is discovered automatically as soon as the app connects to the broker.",
+        "data": {
+          "device": "Car device"
+        }
+      },
+      "confirm": {
+        "title": "EvMetrics",
+        "description": "Add the dashboard and automation blueprints for **{name}**?"
+      }
+    },
+    "error": {
+      "not_mqtt_device": "This device was not created by MQTT Discovery."
+    },
+    "abort": {
+      "already_configured": "This car is already configured.",
+      "not_supported": "This MQTT message is not an EvMetrics device."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Car dashboard",
+        "data": {
+          "title": "Dashboard title",
+          "show_in_sidebar": "Show in the sidebar",
+          "image": "Car image (URL)",
+          "live_cameras": "Live cameras"
+        },
+        "data_description": {
+          "title": "Empty = the car name.",
+          "image": "For example /local/images/my-car.png. Empty = the built-in drawing.",
+          "live_cameras": "Camera entities shown live in the Sentry section (for example the MJPEG cameras of the app)."
+        }
+      }
+    }
+  },
+  "issues": {
+    "app_outdated": {
+      "title": "EvMetrics app is older than this package",
+      "description": "The car {title} runs EvMetrics {version}, but this package expects {min_version} or newer. Some cards and automations may show missing entities until the app is updated."
+    },
+    "device_not_found": {
+      "title": "EvMetrics car not found",
+      "description": "There is no MQTT device with identifier `{node_id}` (car {title}). Check that the app is connected to the broker and that MQTT Discovery is enabled, or remove and add the integration again."
+    },
+    "dashboard_conflict": {
+      "title": "Dashboard address already in use",
+      "description": "A dashboard already exists at /{url_path}, so the EvMetrics dashboard for {title} was not created. Rename or delete that dashboard and reload the integration, or add the EvMetrics dashboard yourself under Settings › Dashboards › Add dashboard."
+    },
+    "dashboard_unsupported": {
+      "title": "Dashboard could not be registered",
+      "description": "This Home Assistant version did not accept the EvMetrics dashboard for {title}. Add it yourself under Settings › Dashboards › Add dashboard › EvMetrics."
+    }
+  }
+}

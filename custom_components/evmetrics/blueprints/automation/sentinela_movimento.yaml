@@ -1,0 +1,164 @@
+blueprint:
+  name: "EvMetrics: movimento no sentinela"
+  author: EvMetrics
+  description: >
+    Avisa quando o sentinela do carro vê movimento com pessoa ou veículo na foto (detector de objetos no carro).
+    Disparos sem nada relevante chegam como "ignorado" e não avisam. Alguém rondando o carro vira vários eventos
+    seguidos: depois do primeiro, os que chegam com follow_up não avisam de novo (a foto da câmera continua
+    atualizando). Fora de casa o carro pode estar sem internet: o evento chega quando ele voltar a ter rede, e o texto
+    mostra a hora real do disparo.
+
+    Este arquivo é instalado e atualizado pela integração EvMetrics: não edite, use as entradas abaixo.
+  domain: automation
+  source_url: https://github.com/julianohmaas/evmetrics-ha/blob/main/custom_components/evmetrics/blueprints/automation/sentinela_movimento.yaml
+  homeassistant:
+    min_version: "2026.11.0"
+  input:
+    carro:
+      name: Carro
+      icon: mdi:car-electric
+      input:
+        motion_event:
+          name: Evento de movimento
+          description: Entidade "Movimento" do carro (event.*_movimento).
+          default: event.byd_seal_movimento
+          selector:
+            entity:
+              filter:
+                - integration: mqtt
+                  domain: event
+        photo_camera:
+          name: Câmera do último disparo
+          description: 'Entidade "Sentinela (último disparo)" (camera.*). A foto vai na notificação.'
+          default: camera.byd_seal_sentinela_ultimo_disparo
+          selector:
+            entity:
+              filter:
+                - integration: mqtt
+                  domain: camera
+        dashboard_path:
+          name: Abrir ao tocar
+          description: Caminho aberto ao tocar na notificação do celular.
+          default: /evmetrics-seal/sentinela
+          selector:
+            text:
+    avisos:
+      name: Avisos
+      icon: mdi:bell-ring
+      input:
+        notify_devices:
+          name: Celulares (app do Home Assistant)
+          description: Recebem a notificação com a foto, num canal próprio ("Sentinela").
+          default: []
+          selector:
+            device:
+              multiple: true
+              filter:
+                - integration: mobile_app
+        notify_entities:
+          name: Outros notificadores
+          description: Entidades notify (Telegram, e-mail...). Recebem só o texto.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: notify
+        telegram_chat_id:
+          name: Telegram com foto (chat ID)
+          description: >
+            Opcional. Manda a foto pelo telegram_bot para este chat. A foto é gravada em /media/evmetrics; se o HA
+            disser "not allowed", inclua /media em homeassistant: allowlist_external_dirs.
+          default: ""
+          selector:
+            text:
+        extra_actions:
+          name: Ações extras
+          description: "Opcional. Rodam depois dos avisos (variáveis disponíveis: quando, oque, onde, texto)."
+          default: []
+          selector:
+            action: {}
+
+mode: queued
+max: 10
+
+variables:
+  notify_devices: !input notify_devices
+  notify_entities: !input notify_entities
+  telegram_chat_id: !input telegram_chat_id
+  photo_camera: !input photo_camera
+  dashboard_path: !input dashboard_path
+
+triggers:
+  - trigger: state
+    entity_id: !input motion_event
+
+conditions:
+  # ignora a volta de "indisponível" (reinício do HA/MQTT), os "ignorado" e a continuação de uma mesma ronda
+  - condition: template
+    value_template: >
+      {{ trigger.from_state is not none
+         and trigger.from_state.state not in ['unavailable', 'unknown']
+         and trigger.to_state.state not in ['unavailable', 'unknown']
+         and trigger.to_state.attributes.event_type == 'movimento'
+         and trigger.to_state.attributes.follow_up != true }}
+
+actions:
+  # lê o evento que disparou esta execução (trigger.to_state), não o estado atual: no modo "queued", uma execução que
+  # esperou na fila mostraria a hora e os objetos do evento seguinte
+  - variables:
+      quando: >
+        {% set at = trigger.to_state.attributes.at %}
+        {{ as_timestamp(at) | timestamp_custom('%d/%m %H:%M:%S') if at else 'agora' }}
+      oque: "{{ trigger.to_state.attributes.objects or '' }}"
+      onde: >
+        {% set casa = trigger.to_state.attributes.at_home %}
+        {{ 'em casa' if casa == true else ('na rua' if casa == false else '') }}
+      texto: "Disparo às {{ quando }} {{ onde }}. {{ oque }}"
+  - repeat:
+      for_each: "{{ notify_devices }}"
+      sequence:
+        # o serviço do app do HA leva o nome original do aparelho (notify.mobile_app_<nome>)
+        - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+          continue_on_error: true
+          data:
+            title: "🚨 Movimento no carro"
+            message: "{{ texto }}"
+            data:
+              image: "/api/camera_proxy/{{ photo_camera }}"
+              clickAction: "{{ dashboard_path }}"
+              url: "{{ dashboard_path }}"
+              tag: evmetrics-sentinela
+              channel: Sentinela
+              importance: high
+              ttl: 0
+              priority: high
+  - if:
+      - condition: template
+        value_template: "{{ notify_entities | count > 0 }}"
+    then:
+      - action: notify.send_message
+        continue_on_error: true
+        target:
+          entity_id: "{{ notify_entities }}"
+        data:
+          title: "🚨 Movimento no carro"
+          message: "{{ texto }}"
+  - if:
+      - condition: template
+        value_template: "{{ telegram_chat_id | string | trim != '' }}"
+    then:
+      - action: camera.snapshot
+        continue_on_error: true
+        target:
+          entity_id: "{{ photo_camera }}"
+        data:
+          filename: /media/evmetrics/sentinela_ultimo.jpg
+      - action: telegram_bot.send_photo
+        continue_on_error: true
+        data:
+          target: "{{ telegram_chat_id | int(telegram_chat_id) }}"
+          file: /media/evmetrics/sentinela_ultimo.jpg
+          caption: "🚨 Movimento no carro — {{ texto }}"
+  - choose: []
+    default: !input extra_actions

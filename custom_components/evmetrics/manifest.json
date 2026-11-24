@@ -1,0 +1,15 @@
+{
+  "domain": "evmetrics",
+  "name": "EvMetrics (BYD)",
+  "categories": ["energy.ev_charging"],
+  "codeowners": ["@julianohmaas"],
+  "config_flow": true,
+  "dependencies": ["frontend", "http", "lovelace", "mqtt", "websocket_api"],
+  "documentation": "https://github.com/julianohmaas/evmetrics-ha",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/julianohmaas/evmetrics-ha/issues",
+  "mqtt": ["homeassistant/event/+/sentinel_motion/config"],
+  "requirements": [],
+  "version": "0.1.0"
+}

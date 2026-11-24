@@ -18,12 +18,15 @@ jobs:
         uses: hacs/action@main
         with:
           category: integration
+          # sem licença por enquanto (decisão do dono); tirar o ignore quando o LICENSE entrar.
+          # Instalar por link funciona assim; só a entrada no catálogo padrão exige todas as checagens.
+          ignore: license
 
   hassfest:
     name: hassfest
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: home-assistant/actions/hassfest@master
 
   checks:
@@ -32,11 +35,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
       - name: Python compila
@@ -46,4 +49,5 @@ jobs:
           pip install --quiet pyyaml
           python scripts/check.py
       - name: Strategy (gera o dashboard com um carro de exemplo)
-        run: node --test tests/
+        # arquivos explícitos: do Node 21 em diante o argumento é um padrão de arquivo e uma pasta não casa com nada
+        run: node --test tests/*.test.mjs

@@ -78,7 +78,7 @@ nada, e o contrato entre o app e este pacote são as **chaves**, listadas em `KE
 ## Desenvolvimento
 
 - `python scripts/check.py`: blueprints (YAML, `!input`), traduções e manifest.
-- `node --test tests/`: gera o dashboard com um carro de exemplo e confere os cartões.
+- `node --test tests/*.test.mjs`: gera o dashboard com um carro de exemplo e confere os cartões.
 - CI: Marketplace (HACS action), hassfest e as duas checagens acima.
 
 **Publicar uma versão:** mude `version` no `custom_components/evmetrics/manifest.json`, faça o commit e crie a tag com

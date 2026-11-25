@@ -6,7 +6,10 @@ atualizado pelo Marketplace, o que antes se colava à mão:
 
 - **Dashboard do carro**: bateria, recarga, sentinela, condução, pneus, motores e gráficos, montado sozinho a partir
   das entidades do carro. Usa só cartões padrão do Home Assistant.
-- **Blueprints de automação**: movimento no sentinela (com a foto), carro que não dormiu e fim da recarga.
+- **Câmeras pela internet**: ao vivo sob pedido, flipbook do último alerta e o vídeo do alerta na Mídia do HA, com
+  o carro no 4G (veja [Câmeras pela internet](#câmeras-pela-internet)).
+- **Blueprints de automação**: movimento no sentinela (com a foto e o botão "Ver vídeo"), vídeo do sentinela, carro
+  que não dormiu e fim da recarga.
 - **Avisos em Reparações** quando o app no carro é mais antigo que o pacote, ou quando o carro sumiu do MQTT.
 
 A integração não cria sensores: as entidades continuam vindo do MQTT Discovery do app.
@@ -41,6 +44,34 @@ Opções (**Configurar** na integração): título, mostrar ou não na barra lat
 `/local/images/meu-carro.png`; vazio = o desenho do pacote) e câmeras ao vivo para a aba Sentinela (por exemplo as
 câmeras MJPEG do app).
 
+### Câmeras pela internet
+
+Com as "câmeras pela internet" configuradas no app (EvMetrics 1.1 ou mais novo), a aba **Sentinela** ganha a seção
+**Câmeras pela internet**: escolha da câmera ao vivo (Desligada / 360° / Frontal, 3 min por pedido), o estado da
+transmissão com o consumo do 4G no mês, a imagem ao vivo (só enquanto o carro transmite), o flipbook do último alerta
+e o botão **Enviar vídeo do último alerta** (o MP4 vai para a Mídia do HA, em `/media/evmetrics`).
+
+As imagens vêm de duas câmeras **Push** que você cria no `configuration.yaml`, com estes nomes (o dashboard procura
+`camera.seal_ao_vivo` e `camera.seal_alerta`; sem elas, a seção mostra só os controles):
+
+```yaml
+camera:
+  - platform: push
+    name: Seal ao vivo
+    webhook_id: !secret seal_live_webhook
+    timeout: 5
+    buffer: 1
+  - platform: push
+    name: Seal alerta
+    webhook_id: !secret seal_alert_webhook
+    timeout: 15
+    buffer: 12
+```
+
+Os ids dos webhooks, o endereço do HA e um token de administrador vão nos Ajustes do app; o passo a passo está no
+`docs/CAMERAS.md` do app. Essas duas câmeras não precisam estar na opção "Câmeras ao vivo": se estiverem, aparecem só
+na seção delas.
+
 **Quer personalizar?** O dashboard da integração não é editável. Crie um seu em **Configurações › Painéis ›
 Adicionar painel › EvMetrics (carro)** e use **Assumir o controle** para editar os cartões. Ou use a strategy em
 YAML:
@@ -58,7 +89,8 @@ Telegram que recebe a foto.
 
 | Blueprint | O que faz |
 |---|---|
-| Movimento no sentinela | Notifica com a foto quando o carro vê pessoa ou veículo. Ignora os disparos "ignorado" e a continuação da mesma ronda. Mostra a hora real do disparo (o carro pode estar sem rede na hora). |
+| Movimento no sentinela | Notifica com a foto quando o carro vê pessoa ou veículo. Ignora os disparos "ignorado" e a continuação da mesma ronda. Mostra a hora real do disparo (o carro pode estar sem rede na hora). Opcional: botão "Ver vídeo" na notificação, que pede o MP4 do disparo ao carro (ligue em uma automação só). |
+| Vídeo do sentinela | Avisa quando o vídeo pedido chegou na Mídia do HA ou falhou (sem rede, limite do 4G, token). |
 | Carro não dormiu | Avisa quando o carro está desligado há um tempo e continua acordado (gasta bateria). |
 | Fim da recarga | Avisa no fim da recarga com energia, SOC, duração e tipo; escolha entre concluída, interrompida e parou. |
 

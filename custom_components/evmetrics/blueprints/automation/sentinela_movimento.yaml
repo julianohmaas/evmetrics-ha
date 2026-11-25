@@ -85,6 +85,27 @@ blueprint:
           default: []
           selector:
             action: {}
+    video:
+      name: Vídeo do alerta
+      icon: mdi:file-video
+      collapsed: true
+      input:
+        video_button:
+          name: Botão "Ver vídeo" na notificação
+          description: >
+            Põe o botão "Ver vídeo" na notificação do celular. Tocar nele pede ao carro o MP4 do disparo, que vai para
+            a Mídia do HA (/media/evmetrics; ~25 MB, conta no limite do 4G do app). Precisa das "câmeras pela
+            internet" configuradas no app. Para saber quando o vídeo chegou, use o blueprint "vídeo do sentinela".
+            Ligue em uma automação só, senão o pedido sai repetido.
+          default: false
+          selector:
+            boolean:
+        video_topic:
+          name: Tópico do pedido de vídeo
+          description: '<tópico base do app>/sentinel/video/get (tópico base "evmetrics/seal" = o padrão).'
+          default: evmetrics/seal/sentinel/video/get
+          selector:
+            text:
 
 mode: queued
 max: 10
@@ -95,22 +116,44 @@ variables:
   telegram_entities: !input telegram_entities
   photo_camera: !input photo_camera
   dashboard_path: !input dashboard_path
+  video_button: !input video_button
+  video_topic: !input video_topic
 
 triggers:
   - trigger: state
     entity_id: !input motion_event
+    id: movimento
+  # toque no botão "Ver vídeo" (action SEAL_VIDEO_<pasta do evento>)
+  - trigger: event
+    event_type: mobile_app_notification_action
+    id: ver_video
 
 conditions:
-  # ignora a volta de "indisponível" (reinício do HA/MQTT), os "ignorado" e a continuação de uma mesma ronda
+  # movimento: ignora a volta de "indisponível" (reinício do HA/MQTT), os "ignorado" e a continuação de uma mesma
+  # ronda. ver_video: só com o botão ligado e só as ações deste blueprint
   - condition: template
     value_template: >
-      {{ trigger.from_state is not none
-         and trigger.from_state.state not in ['unavailable', 'unknown']
-         and trigger.to_state.state not in ['unavailable', 'unknown']
-         and trigger.to_state.attributes.event_type == 'movimento'
-         and trigger.to_state.attributes.follow_up != true }}
+      {% if trigger.id == 'ver_video' %}
+        {{ video_button and (trigger.event.data.action | default('') | string).startswith('SEAL_VIDEO_') }}
+      {% else %}
+        {{ trigger.from_state is not none
+           and trigger.from_state.state not in ['unavailable', 'unknown']
+           and trigger.to_state.state not in ['unavailable', 'unknown']
+           and trigger.to_state.attributes.event_type == 'movimento'
+           and trigger.to_state.attributes.follow_up != true }}
+      {% endif %}
 
 actions:
+  # pedido de vídeo: o carro sobe o MP4 e responde no evento "Vídeo do sentinela"
+  - if:
+      - condition: trigger
+        id: ver_video
+    then:
+      - action: mqtt.publish
+        data:
+          topic: "{{ video_topic }}"
+          payload: "{{ trigger.event.data.action[11:] }}"
+      - stop: Vídeo pedido ao carro
   # lê o evento que disparou esta execução (trigger.to_state), não o estado atual: no modo "queued", uma execução que
   # esperou na fila mostraria a hora e os objetos do evento seguinte
   - variables:
@@ -122,6 +165,10 @@ actions:
         {% set casa = trigger.to_state.attributes.at_home %}
         {{ 'em casa' if casa == true else ('na rua' if casa == false else '') }}
       texto: "Disparo às {{ quando }} {{ onde }}. {{ oque }}"
+      # botão "Ver vídeo" (só com a opção ligada e a pasta do evento no atributo "event")
+      botoes: >
+        {%- set ev = trigger.to_state.attributes.event | default('') -%}
+        {{ [{'action': 'SEAL_VIDEO_' ~ ev, 'title': 'Ver vídeo'}] if video_button and ev else [] }}
   - repeat:
       for_each: "{{ notify_devices }}"
       sequence:
@@ -140,6 +187,7 @@ actions:
               importance: high
               ttl: 0
               priority: high
+              actions: "{{ botoes }}"
   - if:
       - condition: template
         value_template: "{{ notify_entities | count > 0 }}"

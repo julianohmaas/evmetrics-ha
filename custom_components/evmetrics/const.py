@@ -32,4 +32,5 @@ BLUEPRINT_FOLDER = "evmetrics"
 
 # Versão mínima do app EvMetrics (campo sw_version do dispositivo, "EvMetrics 1.0") que publica todas as chaves que o
 # dashboard e os blueprints usam. Subir junto quando o pacote passar a depender de uma chave nova.
-MIN_APP_VERSION = "1.0"
+# 1.1: câmeras pela internet (live_select, live_state, video_last, video_event).
+MIN_APP_VERSION = "1.1"

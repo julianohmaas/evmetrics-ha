@@ -134,7 +134,16 @@ const KEYS = {
   SENTINEL_SWITCH: "sentinel_switch",
   SENTINEL_PHOTO: "sentinel_photo",
   SENTINEL_EVENT: "sentinel_event",
+  // câmeras pela internet (Push camera do HA)
+  LIVE_SELECT: "live_select",
+  LIVE_STATE: "live_state",
+  VIDEO_LAST: "video_last",
+  VIDEO_EVENT: "video_event",
 };
+
+// Câmeras Push criadas pelo YAML do usuário (docs/CAMERAS.md do app), não pelo app: entram se existirem.
+const PUSH_LIVE = "camera.seal_ao_vivo";
+const PUSH_ALERT = "camera.seal_alerta";
 
 const DOMAIN_TITLES = {
   sensor: "Sensores",
@@ -522,7 +531,8 @@ function viewSentinela(c) {
     : null;
 
   // câmeras ao vivo (opção da integração): somem enquanto estão indisponíveis (carro fora da rede)
-  const cams = c.v.cameras || [];
+  // as câmeras Push têm a seção delas (pushCameras): não repetem aqui se também estiverem na opção
+  const cams = (c.v.cameras || []).filter((e) => e !== PUSH_LIVE && e !== PUSH_ALERT);
   const aoVivo = cams.length
     ? c.section(
         "Ao vivo",
@@ -540,7 +550,72 @@ function viewSentinela(c) {
       )
     : null;
 
-  return c.view("Sentinela", "sentinela", "mdi:cctv", [sentinela, foto, historico, aoVivo]);
+  return c.view("Sentinela", "sentinela", "mdi:cctv", [sentinela, foto, historico, aoVivo, pushCameras(c)]);
+}
+
+/** Câmeras pela internet: escolha do ao vivo, estado, imagens das câmeras Push e o vídeo do último alerta. */
+function pushCameras(c) {
+  const exists = (entity) => Boolean(c.hass && c.hass.states && c.hass.states[entity]);
+  const live = exists(PUSH_LIVE)
+    ? {
+        type: "picture-entity",
+        entity: PUSH_LIVE,
+        name: "Ao vivo",
+        show_state: false,
+        camera_view: "live",
+        grid_options: { columns: 12 },
+      }
+    : null;
+  // a imagem ao vivo só aparece enquanto o carro transmite
+  const liveCard =
+    live && c.id(KEYS.LIVE_STATE)
+      ? {
+          ...live,
+          visibility: [{ condition: "state", entity: c.id(KEYS.LIVE_STATE), state: ["iniciando", "transmitindo"] }],
+        }
+      : live;
+  const videoBtn = c.id(KEYS.VIDEO_LAST)
+    ? c.tile(KEYS.VIDEO_LAST, "Enviar vídeo do último alerta", {
+        tap_action: { action: "perform-action", perform_action: "button.press", target: { entity_id: c.id(KEYS.VIDEO_LAST) } },
+        grid_options: { columns: 12 },
+      })
+    : null;
+  return c.section(
+    "Câmeras pela internet",
+    "mdi:cctv",
+    [
+      c.tile(KEYS.LIVE_SELECT, "Câmera ao vivo", { features: [{ type: "select-options" }], grid_options: { columns: 12 } }),
+      c.entities(null, [
+        c.id(KEYS.LIVE_STATE) ? { entity: c.id(KEYS.LIVE_STATE), name: "Ao vivo" } : null,
+        c.attr(KEYS.LIVE_STATE, "frames", "Imagens"),
+        c.attr(KEYS.LIVE_STATE, "kb", "Enviado", "KB"),
+        c.attr(KEYS.LIVE_STATE, "route", "Rota"),
+        c.attr(KEYS.LIVE_STATE, "error", "Erro"),
+        c.attr(KEYS.LIVE_STATE, "month_4g_mb", "4G no mês", "MB"),
+        c.attr(KEYS.LIVE_STATE, "limit_4g_mb", "Limite do 4G", "MB"),
+      ]),
+      liveCard,
+      exists(PUSH_ALERT)
+        ? {
+            type: "picture-entity",
+            entity: PUSH_ALERT,
+            name: "Último alerta",
+            show_state: false,
+            camera_view: "live",
+            grid_options: { columns: 12 },
+          }
+        : null,
+      videoBtn,
+      c.entities(null, [
+        c.id(KEYS.VIDEO_EVENT) ? { entity: c.id(KEYS.VIDEO_EVENT), name: "Vídeo do sentinela" } : null,
+        c.attr(KEYS.VIDEO_EVENT, "event_type", "Resultado"),
+        c.attr(KEYS.VIDEO_EVENT, "mb", "Tamanho", "MB"),
+        c.attr(KEYS.VIDEO_EVENT, "error", "Erro"),
+      ]),
+    ],
+    {},
+    [KEYS.LIVE_STATE]
+  );
 }
 
 function viewEnergia(c) {

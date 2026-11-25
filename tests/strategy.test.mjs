@@ -30,6 +30,9 @@ const DOMAIN_OF = {
   SENTINEL_PHOTO: "camera",
   SENTINEL_EVENT: "event",
   CHARGE_EVENT: "event",
+  LIVE_SELECT: "select",
+  VIDEO_LAST: "button",
+  VIDEO_EVENT: "event",
 };
 
 function vehicle(keys) {
@@ -126,6 +129,29 @@ test("carro com poucas chaves não gera cartão vazio", async () => {
   check(d, v);
   const sentinela = d.views.find((x) => x.path === "sentinela");
   assert.equal(sentinela.sections.length, 0, "sem sentinela no carro, a view fica vazia");
+});
+
+test("câmeras pela internet: seção própria, Push só se existirem e sem repetir na lista ao vivo", async () => {
+  const v = vehicle(["LIVE_SELECT", "LIVE_STATE", "VIDEO_LAST", "VIDEO_EVENT"]);
+  v.cameras = ["camera.seal_ao_vivo", "camera.seal_cameras"];
+  const hass = hassWith(v);
+  for (const e of ["camera.seal_ao_vivo", "camera.seal_alerta"]) hass.states[e] = { entity_id: e, state: "idle" };
+  const d = await generateDashboard({}, hass);
+  check(d, { ...v, cameras: [...v.cameras, "camera.seal_alerta"] });
+  const sentinela = d.views.find((x) => x.path === "sentinela");
+  const push = sentinela.sections.find((s) => s.cards[0].heading === "Câmeras pela internet");
+  assert.ok(push, "seção das câmeras pela internet");
+  const pics = push.cards.filter((x) => x.type === "picture-entity").map((x) => x.entity);
+  assert.deepEqual(pics, ["camera.seal_ao_vivo", "camera.seal_alerta"]);
+  const aoVivo = sentinela.sections.find((s) => s.cards[0].heading === "Ao vivo");
+  assert.deepEqual(aoVivo.cards.slice(1).map((x) => x.entity), ["camera.seal_cameras"], "Push fora da lista ao vivo");
+  const btn = push.cards.find((x) => x.entity === "button.byd_seal_video_last");
+  assert.equal(btn.tap_action.perform_action, "button.press");
+
+  // sem as Push cams no HA e sem as chaves novas: nada da seção
+  const pobre = vehicle(["SOC", "SENTINEL_STATE"]);
+  const d2 = await generateDashboard({}, hassWith(pobre));
+  assert.ok(!JSON.stringify(d2).includes("Câmeras pela internet"));
 });
 
 test("sem integração ou sem carro mostra uma mensagem", async () => {

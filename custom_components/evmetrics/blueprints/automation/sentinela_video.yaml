@@ -1,0 +1,131 @@
+blueprint:
+  name: "EvMetrics: vídeo do sentinela"
+  author: EvMetrics
+  description: >
+    Avisa quando o vídeo de um alerta do sentinela, pedido pelo botão "Ver vídeo" da notificação ou pelo botão
+    "Enviar vídeo do último alerta" do dashboard, chegou na Mídia do HA (/media/evmetrics) ou falhou (sem rede, limite
+    do 4G, token recusado...). Precisa das "câmeras pela internet" configuradas no app.
+
+    Este arquivo é instalado e atualizado pela integração EvMetrics: não edite, use as entradas abaixo.
+  domain: automation
+  source_url: https://github.com/julianohmaas/evmetrics-ha/blob/main/custom_components/evmetrics/blueprints/automation/sentinela_video.yaml
+  homeassistant:
+    min_version: "2026.11.0"
+  input:
+    carro:
+      name: Carro
+      icon: mdi:car-electric
+      input:
+        video_event:
+          name: Evento do vídeo
+          description: Entidade "Vídeo do sentinela" do carro (event.*_video_do_sentinela).
+          default: event.byd_seal_video_do_sentinela
+          selector:
+            entity:
+              filter:
+                - integration: mqtt
+                  domain: event
+        event_types:
+          name: Avisar quando
+          default: [pronto, falhou]
+          selector:
+            select:
+              multiple: true
+              options:
+                - label: O vídeo chegou
+                  value: pronto
+                - label: O envio falhou
+                  value: falhou
+        media_path:
+          name: Abrir ao tocar
+          description: Caminho aberto ao tocar na notificação do celular.
+          default: /media-browser/browser
+          selector:
+            text:
+    avisos:
+      name: Avisos
+      icon: mdi:bell-ring
+      input:
+        notify_devices:
+          name: Celulares (app do Home Assistant)
+          default: []
+          selector:
+            device:
+              multiple: true
+              filter:
+                - integration: mobile_app
+        notify_entities:
+          name: Outros notificadores
+          description: Entidades notify (Telegram, e-mail...).
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: notify
+        extra_actions:
+          name: Ações extras
+          description: "Opcional. Rodam depois dos avisos (variáveis disponíveis: titulo, texto, media_id)."
+          default: []
+          selector:
+            action: {}
+
+mode: queued
+
+variables:
+  notify_devices: !input notify_devices
+  notify_entities: !input notify_entities
+  event_types: !input event_types
+  media_path: !input media_path
+
+triggers:
+  - trigger: state
+    entity_id: !input video_event
+
+conditions:
+  - condition: template
+    value_template: >
+      {{ trigger.from_state is not none
+         and trigger.from_state.state not in ['unavailable', 'unknown']
+         and trigger.to_state.state not in ['unavailable', 'unknown']
+         and trigger.to_state.attributes.event_type in event_types }}
+
+actions:
+  - variables:
+      titulo: >
+        {{ '🎬 Vídeo do alerta no HA' if trigger.to_state.attributes.event_type == 'pronto'
+           else '⚠️ Vídeo do alerta falhou' }}
+      texto: >
+        {% set a = trigger.to_state.attributes %}
+        {% set partes = [] %}
+        {% if a.event is defined %}{% set partes = partes + ['Evento ' ~ a.event] %}{% endif %}
+        {% if a.mb is defined %}{% set partes = partes + [a.mb ~ ' MB'] %}{% endif %}
+        {% if a.error is defined %}{% set partes = partes + [a.error] %}{% endif %}
+        {{ partes | join(' · ') if partes else 'Sem detalhes.' }}
+      media_id: "{{ trigger.to_state.attributes.media_content_id | default('') }}"
+  - repeat:
+      for_each: "{{ notify_devices }}"
+      sequence:
+        - action: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | slugify }}"
+          continue_on_error: true
+          data:
+            title: "{{ titulo }}"
+            message: "{{ texto }}"
+            data:
+              clickAction: "{{ media_path }}"
+              url: "{{ media_path }}"
+              tag: evmetrics-sentinela-video
+              channel: Sentinela
+  - if:
+      - condition: template
+        value_template: "{{ notify_entities | count > 0 }}"
+    then:
+      - action: notify.send_message
+        continue_on_error: true
+        target:
+          entity_id: "{{ notify_entities }}"
+        data:
+          title: "{{ titulo }}"
+          message: "{{ texto }}"
+  - choose: []
+    default: !input extra_actions

@@ -48,7 +48,7 @@ function vehicle(keys) {
     url_path: "evmetrics-seal",
     app_version: "1.0",
     min_app_version: "1.0",
-    image: "/evmetrics_static/seal.svg",
+    image: "/evmetrics_static/seal.webp",
     cameras: ["camera.seal_cameras"],
     entities,
   };

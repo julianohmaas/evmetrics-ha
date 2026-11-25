@@ -57,7 +57,7 @@ class VehicleInfo:
             "app_version": self.app_version,
             "min_app_version": MIN_APP_VERSION,
             "entities": self.entities,
-            "image": self.image or f"{STATIC_URL}/seal.svg",
+            "image": self.image or f"{STATIC_URL}/seal.webp",
             "cameras": self.cameras,
         }
 

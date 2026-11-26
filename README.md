@@ -38,7 +38,9 @@ O dashboard não fica gravado no seu HA: ele é gerado na hora pela *strategy* `
 pacote muda o dashboard sozinha, e um sensor novo do app aparece pelo menos na aba **Todos**.
 
 Abas: **Carro** (visão geral com a imagem do carro, mapa, portas e janelas, 12 V), **Sentinela**, **Energia**
-(bateria, células, BMS, recarga), **Condução** (modos, motores, pneus, viagem), **Gráficos** e **Todos**.
+(bateria, células, BMS, recarga), **Condução** (modos, motores, pneus, viagem), **Gráficos** e **Todos** (todas as
+entidades do carro por sistema; o que o pacote ainda não conhece fica em **Outros**). No computador as abas usam 3
+colunas de alturas parecidas; no celular viram uma coluna só, na mesma ordem.
 
 Opções (**Configurar** na integração): título, mostrar ou não na barra lateral, imagem do carro (por exemplo
 `/local/images/meu-carro.png`; vazio = o desenho do pacote) e câmeras ao vivo para a aba Sentinela (por exemplo as
@@ -46,10 +48,11 @@ câmeras MJPEG do app).
 
 ### Câmeras pela internet
 
-Com as "câmeras pela internet" configuradas no app (EvMetrics 1.1 ou mais novo), a aba **Sentinela** ganha a seção
-**Câmeras pela internet**: escolha da câmera ao vivo (Desligada / 360° / Frontal, 3 min por pedido), o estado da
-transmissão com o consumo do 4G no mês, a imagem ao vivo (só enquanto o carro transmite), o flipbook do último alerta
-e o botão **Enviar vídeo do último alerta** (o MP4 vai para a Mídia do HA, em `/media/evmetrics`).
+Com as "câmeras pela internet" configuradas no app (EvMetrics 1.1 ou mais novo), a aba **Sentinela** ganha duas
+seções: **Câmeras pela internet**, com a escolha da câmera ao vivo (Desligada / 360° / Frontal, 3 min por pedido), o
+estado da transmissão com o consumo do 4G no mês e a imagem ao vivo (só enquanto o carro transmite); e **Último
+alerta**, com o flipbook do alerta e o botão **Enviar vídeo do último alerta** (o MP4 vai para a Mídia do HA, em
+`/media/evmetrics`).
 
 As imagens vêm de duas câmeras **Push** que você cria no `configuration.yaml`, com estes nomes (o dashboard procura
 `camera.seal_ao_vivo` e `camera.seal_alerta`; sem elas, a seção mostra só os controles):

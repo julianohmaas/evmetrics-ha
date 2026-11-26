@@ -113,6 +113,30 @@ test("carro completo gera as 6 views sem buracos", async () => {
   for (const e of Object.values(v.entities)) assert.ok(listed.includes(e), `"Todos" sem ${e}`);
 });
 
+test("Todos: grupos por sistema em 3 colunas, chave desconhecida em Outros e sem o nome do carro", async () => {
+  const v = vehicle(Object.keys(KEYS).concat(["BMS_CHARGE_COUNT", "UDS_REAR_RPM", "CHAVE_NOVA_DO_APP"]));
+  v.device_id = "dev1";
+  const hass = hassWith(v);
+  hass.devices = { dev1: { name: "BYD Seal" } };
+  for (const e of Object.values(v.entities)) hass.states[e].attributes.friendly_name = `BYD Seal ${e.split(".")[1]}`;
+  const d = await generateDashboard({}, hass);
+  check(d, v);
+  const todos = d.views.find((x) => x.path === "todos");
+  assert.equal(todos.sections.length, 3, "uma seção por coluna");
+  const cards = todos.sections.flatMap((s) => s.cards);
+  const group = (heading) => cards[cards.findIndex((x) => x.heading === heading) + 1].entities.map((x) => x.entity);
+  assert.deepEqual(group("Outros"), ["sensor.byd_seal_chave_nova_do_app"]);
+  assert.ok(group("Bateria e energia").includes("sensor.byd_seal_bms_charge_count"));
+  assert.ok(group("Motores").includes("sensor.byd_seal_uds_rear_rpm"));
+  assert.ok(group("Motores").includes("sensor.byd_seal_charging_driver_motor_current"), "corrente do motor não é recarga");
+  assert.ok(group("Recarga").includes("binary_sensor.byd_seal_charging"));
+  assert.ok(group("Sentinela e câmeras").includes("switch.byd_seal_sentinel_switch"));
+  assert.ok(cards.filter((x) => x.type === "entities").every((x) => x.entities.every((r) => !r.name.startsWith("BYD Seal"))));
+  // colunas equilibradas: a mais alta não passa de 1,5× a mais baixa
+  const heights = todos.sections.map((s) => s.cards.filter((x) => x.type === "entities").reduce((n, x) => n + x.entities.length + 2.5, 0));
+  assert.ok(Math.max(...heights) <= 1.5 * Math.min(...heights), `colunas desequilibradas: ${heights}`);
+});
+
 test("chaves do registro em minúsculas (unique_id do app) acham os cartões", async () => {
   const v = vehicle(Object.keys(KEYS));
   const d = await generateDashboard({}, hassWith(v));
@@ -131,7 +155,18 @@ test("carro com poucas chaves não gera cartão vazio", async () => {
   assert.equal(sentinela.sections.length, 0, "sem sentinela no carro, a view fica vazia");
 });
 
-test("câmeras pela internet: seção própria, Push só se existirem e sem repetir na lista ao vivo", async () => {
+/** Cartões embaixo do cabeçalho `heading` na view, até o próximo cabeçalho (seções empilhadas com c.stack). */
+function under(view, heading) {
+  for (const s of view.sections) {
+    const i = s.cards.findIndex((x) => x.type === "heading" && x.heading === heading);
+    if (i < 0) continue;
+    const next = s.cards.findIndex((x, j) => j > i && x.type === "heading");
+    return s.cards.slice(i + 1, next < 0 ? undefined : next);
+  }
+  return null;
+}
+
+test("câmeras pela internet: seções próprias, Push só se existirem e sem repetir na lista ao vivo", async () => {
   const v = vehicle(["LIVE_SELECT", "LIVE_STATE", "VIDEO_LAST", "VIDEO_EVENT"]);
   v.cameras = ["camera.seal_ao_vivo", "camera.seal_cameras"];
   const hass = hassWith(v);
@@ -139,19 +174,56 @@ test("câmeras pela internet: seção própria, Push só se existirem e sem repe
   const d = await generateDashboard({}, hass);
   check(d, { ...v, cameras: [...v.cameras, "camera.seal_alerta"] });
   const sentinela = d.views.find((x) => x.path === "sentinela");
-  const push = sentinela.sections.find((s) => s.cards[0].heading === "Câmeras pela internet");
-  assert.ok(push, "seção das câmeras pela internet");
-  const pics = push.cards.filter((x) => x.type === "picture-entity").map((x) => x.entity);
-  assert.deepEqual(pics, ["camera.seal_ao_vivo", "camera.seal_alerta"]);
-  const aoVivo = sentinela.sections.find((s) => s.cards[0].heading === "Ao vivo");
-  assert.deepEqual(aoVivo.cards.slice(1).map((x) => x.entity), ["camera.seal_cameras"], "Push fora da lista ao vivo");
-  const btn = push.cards.find((x) => x.entity === "button.byd_seal_video_last");
+  const pics = (cards) => cards.filter((x) => x.type === "picture-entity").map((x) => x.entity);
+  assert.deepEqual(pics(under(sentinela, "Câmeras pela internet")), ["camera.seal_ao_vivo"]);
+  const alerta = under(sentinela, "Último alerta");
+  assert.deepEqual(pics(alerta), ["camera.seal_alerta"]);
+  assert.deepEqual(under(sentinela, "Ao vivo").map((x) => x.entity), ["camera.seal_cameras"], "Push fora da lista ao vivo");
+  const btn = alerta.find((x) => x.entity === "button.byd_seal_video_last");
   assert.equal(btn.tap_action.perform_action, "button.press");
 
   // sem as Push cams no HA e sem as chaves novas: nada da seção
   const pobre = vehicle(["SOC", "SENTINEL_STATE"]);
   const d2 = await generateDashboard({}, hassWith(pobre));
   assert.ok(!JSON.stringify(d2).includes("Câmeras pela internet"));
+});
+
+test("abas em 3 colunas: seções empilhadas e larguras certas nas seções de 2 colunas", async () => {
+  const v = vehicle(Object.keys(KEYS).concat(["BMS_CHARGE_COUNT"]));
+  v.cameras = ["camera.seal_cameras", "camera.seal_dvr"];
+  v.device_id = "dev1";
+  const hass = hassWith(v);
+  hass.devices = { dev1: { name: "BYD Seal" } };
+  hass.states["sensor.byd_seal_bms_charge_count"].attributes.friendly_name = "BYD Seal Recargas (BMS)";
+  for (const e of ["camera.seal_ao_vivo", "camera.seal_alerta"]) hass.states[e] = { entity_id: e, state: "idle" };
+  const d = await generateDashboard({}, hass);
+  const view = (p) => d.views.find((x) => x.path === p);
+  const headings = (s) => s.cards.filter((x) => x.type === "heading").map((x) => x.heading);
+
+  const carro = view("carro").sections;
+  assert.deepEqual(carro.map(headings), [["Visão geral"], ["Portas e janelas", "Clima e luzes"], ["Conexão e 12 V"], ["Onde está"]]);
+  assert.equal(carro[3].column_span, 3, "mapa na largura toda");
+
+  const sentinela = view("sentinela").sections;
+  assert.deepEqual(sentinela.map(headings), [
+    ["Sentinela", "Último disparo"],
+    ["Último alerta", "Disparos"],
+    ["Câmeras pela internet", "Ao vivo"],
+  ]);
+  assert.ok(sentinela.every((s) => !s.column_span), "sentinela sem seções de 2 colunas");
+  assert.deepEqual(under(view("sentinela"), "Ao vivo").map((x) => x.grid_options.columns), [6, 6], "câmeras lado a lado");
+
+  // seção de 2 colunas tem grade de 24: os históricos lado a lado ocupam 12, a recarga a largura toda
+  const hist = view("energia").sections.find((s) => headings(s)[0] === "Últimas 24 h");
+  assert.equal(hist.column_span, 2);
+  assert.deepEqual(hist.cards.slice(1).map((x) => x.grid_options.columns), [12, 12, "full"]);
+  assert.deepEqual(under(view("energia"), "BMS")[0].entities.map((x) => x.name), ["Recargas (BMS)"]);
+
+  const conducao = view("conducao").sections;
+  assert.deepEqual(conducao.map((s) => headings(s)[0]), ["Condução", "Motores", "Pneus", "Viagem", "Temperaturas dos motores (24 h)"]);
+  const motor = conducao[1].cards[1].entities[0];
+  assert.equal(motor.type, "conditional", "linha do motor some sem valor");
+  assert.deepEqual(motor.conditions[0].state_not, ["unknown", "unavailable"]);
 });
 
 test("sem integração ou sem carro mostra uma mensagem", async () => {

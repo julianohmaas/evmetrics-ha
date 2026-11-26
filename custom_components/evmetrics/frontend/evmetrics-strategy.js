@@ -145,14 +145,45 @@ const KEYS = {
 const PUSH_LIVE = "camera.seal_ao_vivo";
 const PUSH_ALERT = "camera.seal_alerta";
 
-const DOMAIN_TITLES = {
-  sensor: "Sensores",
-  binary_sensor: "Liga/desliga",
-  switch: "Interruptores",
-  event: "Eventos",
-  camera: "Câmeras",
-  device_tracker: "Localização",
+// Grupos da aba "Todos", na ordem da tela: os mesmos da tela Ajustes do app (SensorGroup), mais sentinela e conexão.
+const GROUPS = {
+  bateria: ["Bateria e energia", "mdi:battery-high"],
+  celulas: ["Células (CAN)", "mdi:battery-heart-variant"],
+  recarga: ["Recarga", "mdi:ev-station"],
+  viagem: ["Viagem", "mdi:map-marker-distance"],
+  conducao: ["Condução", "mdi:steering"],
+  motores: ["Motores", "mdi:engine"],
+  pneus: ["Pneus", "mdi:car-tire-alert"],
+  carroceria: ["Carroceria e 12 V", "mdi:car-door"],
+  sentinela: ["Sentinela e câmeras", "mdi:cctv"],
+  conexao: ["Conexão e GPS", "mdi:access-point-network"],
+  outros: ["Outros", "mdi:help-circle-outline"],
 };
+
+// Grupo de cada chave (em minúsculas) pelo prefixo; vale a primeira regra que casa. Prefixo em vez de lista fechada
+// para que chaves novas do app da mesma família caiam no grupo certo; o que não casa vai para "Outros".
+const GROUP_RULES = [
+  ["sentinela", /^(sentinel_|live_|video_)/],
+  ["conexao", /^(connected|last_sent|location)/],
+  ["motores", /^(gb_|engine_(front|rear)_|can_(motor|inverter)_|uds_)|driver_motor_current$/],
+  ["recarga", /^(charging|last_charge$|charge_event$)/],
+  ["pneus", /tyre/],
+  ["celulas", /^(battery_cell_|battery_temp|bms_balance)/],
+  [
+    "bateria",
+    /^(statistic_(soc|remaining|elec|instantaneous|max_|battery_healthy|lowest_battery|highest_battery|average_battery)|power_battery|bodywork_battery_capacity$|bms_|soh_calc$|byd_cell_delta)/,
+  ],
+  ["viagem", /^(statistic_(total_mileage|dd_mileage|driving_time|total_elec)|instrument_dd_last_50km)/],
+  ["conducao", /^(gearbox_|speed_|sensor_|set_dr_|energy_(operation|road)|engine_power$|bodywork_steering|adas_|drive_mode$|instrument_2in1_fault)/],
+  ["carroceria", /^(bodywork_|ac_|light_|ota_|energy_dc|instrument_dd_|can_)/],
+];
+
+/** Grupo da aba "Todos" para a chave do app. */
+function groupOf(key) {
+  const k = String(key).toLowerCase();
+  const rule = GROUP_RULES.find(([, re]) => re.test(k));
+  return rule ? rule[0] : "outros";
+}
 
 /** Ferramentas para montar cartões só com o que existe. */
 class Ctx {
@@ -228,6 +259,33 @@ class Ctx {
     const entity = this.id(key);
     if (!entity) return null;
     return { type: "attribute", entity, attribute, name, ...(suffix ? { suffix } : {}) };
+  }
+
+  /** Nome da entidade sem o nome do carro na frente ("BYD Seal Temperatura média" → "Temperatura média"). */
+  shortName(entity) {
+    const full = this.hass.states?.[entity]?.attributes?.friendly_name || entity;
+    const device = this.hass.devices?.[this.v.device_id];
+    const prefix = device ? `${device.name_by_user || device.name} ` : null;
+    return prefix && full.startsWith(prefix) && full.length > prefix.length ? full.slice(prefix.length) : full;
+  }
+
+  /**
+   * Junta seções numa só, uma embaixo da outra (cada uma com o seu cabeçalho). A view "sections" alinha as seções
+   * por fileira, então empilhar as menores numa coluna evita buracos embaixo delas; no celular a ordem é a mesma.
+   */
+  stack(...sections) {
+    const list = sections.filter(Boolean);
+    if (!list.length) return null;
+    return list.length === 1 ? list[0] : { type: "grid", cards: list.flatMap((s) => s.cards) };
+  }
+
+  /** Linhas de cartão entities que somem enquanto a entidade não tem valor (ex.: CAN com o carro desligado). */
+  knownRows(list) {
+    return this.rows(list).map((row) => ({
+      type: "conditional",
+      conditions: [{ condition: "state", entity: row.entity, state_not: ["unknown", "unavailable"] }],
+      row,
+    }));
   }
 
   /** Seção com cabeçalho; some se não sobrou nenhum cartão. */
@@ -375,11 +433,15 @@ function headerBadges(c) {
   ].filter(Boolean);
 }
 
-const HALF = { grid_options: { columns: 6 } };
 const FULL = { grid_options: { columns: 12 } };
+// em seção com column_span 2 (grade de 24 colunas)
+const HALF_OF_2 = { grid_options: { columns: 12 } };
+const WIDE = { grid_options: { columns: "full" } };
 
 // ------------------------------------------------------------------------------------------------ views
-// Grade de 3 colunas: cada seção é uma coluna (o mapa e os históricos largos ocupam 2), na ordem em que aparecem.
+// Grade de 3 colunas. A view "sections" alinha as seções por fileira (a fileira fica com a altura da mais alta), então
+// as seções menores são empilhadas com c.stack() para as colunas terem alturas parecidas. No celular vira 1 coluna,
+// na ordem das seções. Numa seção com column_span 2 a grade tem 24 colunas: metade é 12, não 6.
 
 function viewCarro(c) {
   const v = c.v;
@@ -391,7 +453,7 @@ function viewCarro(c) {
         }
       : null;
 
-  // linha 1: o carro (1 coluna) + o mapa (2 colunas)
+  // fileira 1: o carro | portas, janelas, clima e luzes | conexão e 12 V; fileira 2: o mapa na largura toda
   const visao = c.section("Visão geral", "mdi:car-electric", [
     warning,
     vehicleCard(c),
@@ -405,7 +467,7 @@ function viewCarro(c) {
   const mapa = c.id(KEYS.LOCATION)
     ? {
         type: "grid",
-        column_span: 2,
+        column_span: 3,
         cards: [
           { type: "heading", heading: "Onde está", icon: "mdi:map-marker" },
           {
@@ -414,13 +476,12 @@ function viewCarro(c) {
             hours_to_show: 24,
             default_zoom: 15,
             theme_mode: "auto",
-            grid_options: { columns: "full", rows: 9 },
+            grid_options: { columns: "full", rows: 8 },
           },
         ],
       }
     : null;
 
-  // linha 2: portas e janelas, clima e luzes, conexão e 12 V
   const aberturas = [
     [KEYS.DOOR_LF, "Porta E", "mdi:car-door"],
     [KEYS.DOOR_RF, "Porta D", "mdi:car-door"],
@@ -490,7 +551,7 @@ function viewCarro(c) {
     ]),
   ]);
 
-  return c.view(v.title, "carro", "mdi:car-electric", [visao, mapa, portas, clima, conexao]);
+  return c.view(v.title, "carro", "mdi:car-electric", [visao, c.stack(portas, clima), conexao, mapa]);
 }
 
 function viewSentinela(c) {
@@ -546,15 +607,23 @@ function viewSentinela(c) {
             camera_view: "live",
             grid_options: { columns: cams.length > 1 ? 6 : 12 },
           })
-        ),
-        cams.length > 1 ? { column_span: 2 } : {}
+        )
       )
     : null;
 
-  return c.view("Sentinela", "sentinela", "mdi:cctv", [sentinela, foto, historico, aoVivo, pushCameras(c)]);
+  // colunas: estado e foto | último alerta e disparos | câmeras pela internet e ao vivo
+  const push = pushCameras(c);
+  return c.view("Sentinela", "sentinela", "mdi:cctv", [
+    c.stack(sentinela, foto),
+    c.stack(push.alerta, historico),
+    c.stack(push.cameras, aoVivo),
+  ]);
 }
 
-/** Câmeras pela internet: escolha do ao vivo, estado, imagens das câmeras Push e o vídeo do último alerta. */
+/**
+ * Câmeras pela internet, em duas seções: "cameras" (escolha do ao vivo, estado e a imagem ao vivo) e "alerta"
+ * (flipbook do último alerta e o vídeo dele).
+ */
 function pushCameras(c) {
   const exists = (entity) => Boolean(c.hass && c.hass.states && c.hass.states[entity]);
   const live = exists(PUSH_LIVE)
@@ -581,7 +650,7 @@ function pushCameras(c) {
         grid_options: { columns: 12 },
       })
     : null;
-  return c.section(
+  const cameras = c.section(
     "Câmeras pela internet",
     "mdi:cctv",
     [
@@ -596,27 +665,30 @@ function pushCameras(c) {
         c.attr(KEYS.LIVE_STATE, "limit_4g_mb", "Limite do 4G", "MB"),
       ]),
       liveCard,
-      exists(PUSH_ALERT)
-        ? {
-            type: "picture-entity",
-            entity: PUSH_ALERT,
-            name: "Último alerta",
-            show_state: false,
-            camera_view: "live",
-            grid_options: { columns: 12 },
-          }
-        : null,
-      videoBtn,
-      c.entities(null, [
-        c.id(KEYS.VIDEO_EVENT) ? { entity: c.id(KEYS.VIDEO_EVENT), name: "Vídeo do sentinela" } : null,
-        c.attr(KEYS.VIDEO_EVENT, "event_type", "Resultado"),
-        c.attr(KEYS.VIDEO_EVENT, "mb", "Tamanho", "MB"),
-        c.attr(KEYS.VIDEO_EVENT, "error", "Erro"),
-      ]),
     ],
     {},
     [KEYS.LIVE_STATE]
   );
+  const alerta = c.section("Último alerta", "mdi:image-multiple", [
+    exists(PUSH_ALERT)
+      ? {
+          type: "picture-entity",
+          entity: PUSH_ALERT,
+          show_name: false,
+          show_state: false,
+          camera_view: "live",
+          grid_options: { columns: 12 },
+        }
+      : null,
+    videoBtn,
+    c.entities(null, [
+      c.id(KEYS.VIDEO_EVENT) ? { entity: c.id(KEYS.VIDEO_EVENT), name: "Vídeo do sentinela" } : null,
+      c.attr(KEYS.VIDEO_EVENT, "event_type", "Resultado"),
+      c.attr(KEYS.VIDEO_EVENT, "mb", "Tamanho", "MB"),
+      c.attr(KEYS.VIDEO_EVENT, "error", "Erro"),
+    ]),
+  ]);
+  return { cameras, alerta };
 }
 
 function viewEnergia(c) {
@@ -700,7 +772,7 @@ function viewEnergia(c) {
     ]),
   ]);
 
-  // linha 2: históricos (2 colunas) + BMS
+  // fileira 2: históricos (2 colunas: células e temperatura lado a lado, recarga embaixo) + BMS
   const historico = c.section(
     "Últimas 24 h",
     "mdi:chart-line",
@@ -712,7 +784,7 @@ function viewEnergia(c) {
           [KEYS.CELL_MIN, "Mínima"],
           [KEYS.CELL_MAX, "Máxima"],
         ],
-        HALF
+        HALF_OF_2
       ),
       c.history(
         "Temperatura da bateria",
@@ -722,7 +794,7 @@ function viewEnergia(c) {
           [KEYS.TEMP_MAX, "Máx."],
           [KEYS.OUT_TEMP, "Externa"],
         ],
-        HALF
+        HALF_OF_2
       ),
       c.history(
         "Recarga",
@@ -731,7 +803,7 @@ function viewEnergia(c) {
           [KEYS.CHARGE_POWER, "Potência de carga"],
           [KEYS.SOC, "SOC"],
         ],
-        FULL
+        WIDE
       ),
     ],
     { column_span: 2 }
@@ -742,7 +814,9 @@ function viewEnergia(c) {
     .filter((k) => k.startsWith("bms_"))
     .sort();
   const bms = bmsKeys.length
-    ? c.section("BMS", "mdi:chip", [c.entities(null, bmsKeys.map((k) => ({ entity: c.map[k] })))])
+    ? c.section("BMS", "mdi:chip", [
+        c.entities(null, bmsKeys.map((k) => ({ entity: c.map[k], name: c.shortName(c.map[k]) }))),
+      ])
     : null;
 
   return c.view("Energia", "energia", "mdi:battery-charging", [bateria, recarga, celulas, historico, bms]);
@@ -799,10 +873,10 @@ function viewConducao(c) {
     ]),
   ]);
 
-  // linha 2: motores lado a lado (2 colunas se tiver os dois) + gráfico de temperaturas (1 coluna)
+  // motores lado a lado (2 colunas se tiver os dois); as linhas sem valor (CAN com o carro desligado) somem
   const traseiro = c.entities(
     "Traseiro (principal)",
-    [
+    c.knownRows([
       [KEYS.M_REAR, "Motor"],
       [KEYS.IPM_REAR, "Inversor"],
       [KEYS.CAN_M_REAR, "Motor (CAN)"],
@@ -812,12 +886,12 @@ function viewConducao(c) {
       [KEYS.TQ_REAR_TARGET, "Torque alvo", "mdi:cog-outline"],
       [KEYS.I_REAR, "Corrente", "mdi:current-ac"],
       [KEYS.BUS_REAR, "Barramento", "mdi:current-dc"],
-    ],
+    ]),
     FULL
   );
   const dianteiro = c.entities(
     "Dianteiro",
-    [
+    c.knownRows([
       [KEYS.M_FRONT, "Motor"],
       [KEYS.IPM_FRONT, "Inversor"],
       [KEYS.CAN_M_FRONT, "Motor (CAN)"],
@@ -826,7 +900,7 @@ function viewConducao(c) {
       [KEYS.TQ_FRONT, "Torque", "mdi:cog"],
       [KEYS.I_FRONT, "Corrente", "mdi:current-ac"],
       [KEYS.BUS_FRONT, "Barramento", "mdi:current-dc"],
-    ],
+    ]),
     FULL
   );
   const motores = c.section(
@@ -845,7 +919,8 @@ function viewConducao(c) {
     ]),
   ]);
 
-  return c.view("Condução", "conducao", "mdi:steering", [conducao, pneus, viagem, motores, temperaturas]);
+  // fileira 1: condução | motores (2 colunas); fileira 2: pneus | viagem | temperaturas dos motores
+  return c.view("Condução", "conducao", "mdi:steering", [conducao, motores, pneus, viagem, temperaturas]);
 }
 
 function viewGraficos(c) {
@@ -876,29 +951,50 @@ function viewGraficos(c) {
   return c.view("Gráficos", "graficos", "mdi:chart-line", [uso, bateria, doze]);
 }
 
-/** Todas as entidades do carro, por domínio: sensores novos do app aparecem aqui sem atualizar o pacote. */
+/**
+ * Divide os grupos, sem mudar a ordem, em até `cols` colunas com alturas parecidas (menor coluna mais alta).
+ * A view "sections" alinha as seções por fileira, então uma seção por coluna evita buracos embaixo das menores.
+ */
+function splitColumns(groups, cols) {
+  const n = groups.length;
+  if (!n) return [];
+  const k = Math.min(cols, n);
+  const sum = (from, to) => groups.slice(from, to).reduce((s, g) => s + g.height, 0);
+  let best = null;
+  const tryCuts = (cuts) => {
+    const bounds = [0, ...cuts, n];
+    const parts = bounds.slice(1).map((end, i) => [bounds[i], end]);
+    const tallest = Math.max(...parts.map(([a, b]) => sum(a, b)));
+    if (!best || tallest < best.tallest) best = { tallest, parts };
+  };
+  const walkCuts = (start, left, cuts) => {
+    if (!left) return tryCuts(cuts);
+    for (let i = start; i <= n - left; i++) walkCuts(i + 1, left - 1, [...cuts, i]);
+  };
+  walkCuts(1, k - 1, []);
+  return best.parts.map(([a, b]) => groups.slice(a, b));
+}
+
+/** Todas as entidades do carro, por sistema: sensores novos do app aparecem aqui sem atualizar o pacote. */
 function viewTodos(c) {
-  const name = (entity) => c.hass.states[entity]?.attributes?.friendly_name || entity;
-  const byDomain = {};
-  for (const entity of Object.values(c.map)) {
-    const domain = entity.split(".")[0];
-    (byDomain[domain] = byDomain[domain] || []).push(entity);
-  }
-  const sections = Object.keys(byDomain)
-    .sort((a, b) => (a === "sensor" ? -1 : b === "sensor" ? 1 : a.localeCompare(b)))
-    .map((domain) =>
-      c.section(
-        DOMAIN_TITLES[domain] || domain,
-        "mdi:format-list-bulleted",
-        [
-          c.entities(
-            null,
-            byDomain[domain].sort((a, b) => name(a).localeCompare(name(b), "pt-BR")).map((entity) => ({ entity }))
-          ),
-        ],
-        domain === "sensor" ? { column_span: 2 } : {}
-      )
-    );
+  const byGroup = {};
+  for (const [key, entity] of Object.entries(c.map)) (byGroup[groupOf(key)] ||= []).push(entity);
+  const groups = Object.keys(GROUPS)
+    .filter((g) => byGroup[g])
+    .map((g) => {
+      const rows = byGroup[g]
+        .map((entity) => ({ entity, name: c.shortName(entity) }))
+        .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+      // altura em linhas: cabeçalho e bordas do cartão valem por umas 2,5 linhas
+      return { id: g, rows, height: rows.length + 2.5 };
+    });
+  const sections = splitColumns(groups, 3).map((column) => ({
+    type: "grid",
+    cards: column.flatMap((g) => [
+      { type: "heading", heading: GROUPS[g.id][0], icon: GROUPS[g.id][1] },
+      { type: "entities", entities: g.rows, state_color: true, grid_options: { columns: "full" } },
+    ]),
+  }));
   return c.view("Todos", "todos", "mdi:format-list-bulleted", sections);
 }
 

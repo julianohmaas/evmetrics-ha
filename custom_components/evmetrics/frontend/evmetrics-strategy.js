@@ -419,17 +419,36 @@ function socGauge(c) {
   };
 }
 
-/** Faixa de badges no topo de todas as views: o essencial do carro sempre à vista. */
+/** Faixa de badges no topo de todas as views: o essencial do carro sempre à vista, com atalho para a aba certa. */
 function headerBadges(c) {
   const soc = c.has(KEYS.SOC_FINE) ? KEYS.SOC_FINE : KEYS.SOC;
+  const slug = (typeof location !== "undefined" && location.pathname.split("/")[1]) || c.v.url_path;
+  const nav = (sub) =>
+    slug
+      ? {
+          tap_action: { action: "navigate", navigation_path: `/${slug}/${sub}` },
+          hold_action: { action: "more-info" },
+        }
+      : {};
+  const v12Low = c.id(KEYS.V12)
+    ? {
+        ...c.badge(KEYS.V12, "12 V", { icon: "mdi:car-battery", color: "red", ...nav("carro") }),
+        visibility: [{ condition: "numeric_state", entity: c.id(KEYS.V12), below: 12.2 }],
+      }
+    : null;
   return [
-    c.badge(soc, "Bateria"),
-    c.badge(KEYS.RANGE, "Autonomia"),
-    c.badge(KEYS.LOCK, "Portas"),
-    c.when(c.badge(KEYS.CHARGE_POWER, "Carregando", { icon: "mdi:ev-station", color: "green" }), KEYS.CHARGING, "on"),
-    c.badge(KEYS.SENTINEL_STATE, "Sentinela"),
+    c.badge(soc, "Bateria", nav("energia")),
+    c.badge(KEYS.RANGE, "Autonomia", { icon: "mdi:map-marker-distance", ...nav("conducao") }),
+    c.badge(KEYS.LOCK, "Portas", nav("carro")),
+    c.when(
+      c.badge(KEYS.CHARGE_POWER, "Carregando", { icon: "mdi:ev-station", color: "green", ...nav("energia") }),
+      KEYS.CHARGING,
+      "on"
+    ),
+    v12Low,
+    c.badge(KEYS.SENTINEL_STATE, "Sentinela", { icon: "mdi:cctv", ...nav("sentinela") }),
     c.badge(KEYS.LAST_SENT, "Último envio"),
-    c.when(c.badge(KEYS.CONNECTED, "App", { color: "red" }), KEYS.CONNECTED, "off"),
+    c.when(c.badge(KEYS.CONNECTED, "App", { color: "red", ...nav("carro") }), KEYS.CONNECTED, "off"),
   ].filter(Boolean);
 }
 
@@ -457,10 +476,10 @@ function viewCarro(c) {
   const visao = c.section("Visão geral", "mdi:car-electric", [
     warning,
     vehicleCard(c),
-    c.tile(KEYS.OUT_TEMP, "Externa"),
+    c.tile(KEYS.OUT_TEMP, "Externa", { icon: "mdi:thermometer" }),
     c.known(c.tile(KEYS.GEAR, "Marcha", { icon: "mdi:car-shift-pattern" })),
-    c.known(c.tile(KEYS.DRIVE_MODE, "Modo")),
-    c.known(c.tile(KEYS.SPEED, "Velocidade")),
+    c.known(c.tile(KEYS.DRIVE_MODE, "Modo", { icon: "mdi:car-cog" })),
+    c.known(c.tile(KEYS.SPEED, "Velocidade", { icon: "mdi:speedometer" })),
     c.tile(KEYS.ODO, "Hodômetro", { icon: "mdi:counter" }),
   ]);
 
@@ -524,7 +543,7 @@ function viewCarro(c) {
 
   const clima = c.section("Clima e luzes", "mdi:air-conditioner", [
     c.tile(KEYS.AC, "Ar-condicionado", { icon: "mdi:air-conditioner" }),
-    c.known(c.tile(KEYS.AC_TEMP, "Temperatura do ar")),
+    c.known(c.tile(KEYS.AC_TEMP, "Temperatura do ar", { icon: "mdi:thermometer" })),
     c.glance(
       null,
       [
@@ -646,6 +665,7 @@ function pushCameras(c) {
       : live;
   const videoBtn = c.id(KEYS.VIDEO_LAST)
     ? c.tile(KEYS.VIDEO_LAST, "Enviar vídeo do último alerta", {
+        icon: "mdi:file-video",
         tap_action: { action: "perform-action", perform_action: "button.press", target: { entity_id: c.id(KEYS.VIDEO_LAST) } },
         grid_options: { columns: 12 },
       })
@@ -654,7 +674,11 @@ function pushCameras(c) {
     "Câmeras pela internet",
     "mdi:cctv",
     [
-      c.tile(KEYS.LIVE_SELECT, "Câmera ao vivo", { features: [{ type: "select-options" }], grid_options: { columns: 12 } }),
+      c.tile(KEYS.LIVE_SELECT, "Câmera ao vivo", {
+        icon: "mdi:video",
+        features: [{ type: "select-options" }],
+        grid_options: { columns: 12 },
+      }),
       c.entities(null, [
         c.id(KEYS.LIVE_STATE) ? { entity: c.id(KEYS.LIVE_STATE), name: "Ao vivo" } : null,
         c.attr(KEYS.LIVE_STATE, "frames", "Imagens"),
@@ -694,15 +718,15 @@ function pushCameras(c) {
 function viewEnergia(c) {
   const bateria = c.section("Bateria", "mdi:battery-high", [
     socGauge(c),
-    c.tile(KEYS.ENERGY, "Energia restante"),
-    c.tile(KEYS.RANGE, "Autonomia"),
-    c.trend(KEYS.CURRENT, "Corrente", 24, FULL),
-    c.tile(KEYS.DISCH_MAX, "Descarga máx."),
-    c.tile(KEYS.CHG_MAX, "Recarga máx."),
+    c.tile(KEYS.ENERGY, "Energia restante", { icon: "mdi:lightning-bolt" }),
+    c.tile(KEYS.RANGE, "Autonomia", { icon: "mdi:map-marker-distance" }),
+    c.trend(KEYS.CURRENT, "Corrente", 24, { ...FULL, icon: "mdi:current-dc" }),
+    c.tile(KEYS.DISCH_MAX, "Descarga máx.", { icon: "mdi:battery-arrow-down" }),
+    c.tile(KEYS.CHG_MAX, "Recarga máx.", { icon: "mdi:battery-arrow-up" }),
     c.entities("Saúde", [
-      [KEYS.SOH, "SOH (BYD)"],
-      [KEYS.SOH_CALC, "SOH calculado"],
-      [KEYS.CAPACITY, "Capacidade"],
+      [KEYS.SOH, "SOH (BYD)", "mdi:heart-pulse"],
+      [KEYS.SOH_CALC, "SOH calculado", "mdi:calculator-variant"],
+      [KEYS.CAPACITY, "Capacidade", "mdi:battery-heart-variant"],
     ]),
   ]);
 
@@ -714,14 +738,18 @@ function viewEnergia(c) {
       min: 0,
       max: 150,
       needle: true,
-      severity: { green: 0, yellow: 11.5, red: 100 },
+      segments: [
+        { from: 0, color: "#4caf50", label: "AC" },
+        { from: 11.5, color: "#2196f3", label: "DC" },
+        { from: 80, color: "#00bcd4", label: "DC rápida" },
+      ],
       grid_options: { columns: 12 },
     },
     KEYS.CHARGING,
     "on"
   );
   const ultima = c.entities("Última recarga", [
-    c.id(KEYS.LAST_CHARGE) ? { entity: c.id(KEYS.LAST_CHARGE), name: "Energia (pack)" } : null,
+    c.id(KEYS.LAST_CHARGE) ? { entity: c.id(KEYS.LAST_CHARGE), name: "Energia (pack)", icon: "mdi:lightning-bolt" } : null,
     c.attr(KEYS.LAST_CHARGE, "kwh_byd", "Energia (BYD)", "kWh"),
     c.attr(KEYS.LAST_CHARGE, "soc_start", "SOC início", "%"),
     c.attr(KEYS.LAST_CHARGE, "soc_end", "SOC fim", "%"),
@@ -741,8 +769,8 @@ function viewEnergia(c) {
         [
           [KEYS.SOC, "SOC"],
           [KEYS.LIMIT, "Limite"],
-          [KEYS.FULL_H, "Faltam (h)"],
-          [KEYS.FULL_MIN, "(min)"],
+          [KEYS.FULL_H, "Faltam (h)", "mdi:timer-outline"],
+          [KEYS.FULL_MIN, "(min)", "mdi:timer-outline"],
         ],
         { columns: 4 }
       ),
@@ -751,24 +779,30 @@ function viewEnergia(c) {
     ),
     c.tile(KEYS.CHARGING, "Carregando"),
     c.tile(KEYS.PLUG, "Plugue"),
-    c.known(c.tile(KEYS.GUN, "Conector")),
-    c.known(c.tile(KEYS.CHARGE_DISPLAY, "Estado no painel")),
+    c.known(c.tile(KEYS.GUN, "Conector", { icon: "mdi:ev-plug-ccs2" })),
+    c.known(c.tile(KEYS.CHARGE_DISPLAY, "Estado no painel", { icon: "mdi:car-info" })),
     ultima,
   ]);
 
   const celulas = c.section("Células e temperaturas", "mdi:car-battery", [
-    c.tile(KEYS.CAN_MIN, "Mínima"),
-    c.tile(KEYS.CAN_MAX, "Máxima"),
-    c.trend(KEYS.CAN_DELTA, "Diferença", 24, FULL),
-    c.tile(KEYS.PACK_V, "Pack"),
-    c.tile(KEYS.CAN_AVG, "Média"),
+    c.tile(KEYS.CAN_MIN, "Mínima", { icon: "mdi:arrow-collapse-down" }),
+    c.tile(KEYS.CAN_MAX, "Máxima", { icon: "mdi:arrow-collapse-up" }),
+    c.trend(KEYS.CAN_DELTA, "Diferença", 24, { ...FULL, icon: "mdi:delta" }),
+    c.tile(KEYS.PACK_V, "Pack", { icon: "mdi:car-battery" }),
+    c.tile(KEYS.CAN_AVG, "Média", { icon: "mdi:approximately-equal" }),
     c.entities(null, [
-      [KEYS.CAN_MIN_NUM, "Nº da mínima"],
-      [KEYS.CAN_MAX_NUM, "Nº da máxima"],
-      [KEYS.BYD_DELTA, "Diferença (BYD)"],
-      [KEYS.TEMP_MIN, "Temperatura mín."],
-      [KEYS.TEMP_AVG, "Temperatura média"],
-      [KEYS.TEMP_MAX, "Temperatura máx."],
+      ...c.rows([
+        [KEYS.CAN_MIN_NUM, "Nº da mínima", "mdi:numeric"],
+        [KEYS.CAN_MAX_NUM, "Nº da máxima", "mdi:numeric"],
+        [KEYS.BYD_DELTA, "Diferença (BYD)", "mdi:delta"],
+        [KEYS.TEMP_MIN, "Temperatura mín."],
+        [KEYS.TEMP_AVG, "Temperatura média"],
+        [KEYS.TEMP_MAX, "Temperatura máx."],
+      ]),
+      ...c.knownRows([
+        [KEYS.PACK_TMIN, "Temperatura mín. (CAN)"],
+        [KEYS.PACK_TMAX, "Temperatura máx. (CAN)"],
+      ]),
     ]),
   ]);
 
@@ -846,20 +880,14 @@ function viewConducao(c) {
 
   // pneus na posição do carro: dianteiros em cima, esquerda à esquerda
   const pneus = c.section("Pneus", "mdi:car-tire-alert", [
-    c.tile(KEYS.TP_LF, "Dianteiro E", { icon: "mdi:tire" }),
-    c.tile(KEYS.TP_RF, "Dianteiro D", { icon: "mdi:tire" }),
-    c.tile(KEYS.TP_LR, "Traseiro E", { icon: "mdi:tire" }),
-    c.tile(KEYS.TP_RR, "Traseiro D", { icon: "mdi:tire" }),
-    c.glance(
-      "Temperatura",
-      [
-        [KEYS.TT_LF, "DE"],
-        [KEYS.TT_RF, "DD"],
-        [KEYS.TT_LR, "TE"],
-        [KEYS.TT_RR, "TD"],
-      ],
-      { columns: 4 }
-    ),
+    c.tile(KEYS.TP_LF, "Pressão DE", { icon: "mdi:tire" }),
+    c.tile(KEYS.TT_LF, "Temperatura DE", { icon: "mdi:thermometer" }),
+    c.tile(KEYS.TP_RF, "Pressão DD", { icon: "mdi:tire" }),
+    c.tile(KEYS.TT_RF, "Temperatura DD", { icon: "mdi:thermometer" }),
+    c.tile(KEYS.TP_LR, "Pressão TE", { icon: "mdi:tire" }),
+    c.tile(KEYS.TT_LR, "Temperatura TE", { icon: "mdi:thermometer" }),
+    c.tile(KEYS.TP_RR, "Pressão TD", { icon: "mdi:tire" }),
+    c.tile(KEYS.TT_RR, "Temperatura TD", { icon: "mdi:thermometer" }),    
   ]);
 
   const viagem = c.section("Viagem", "mdi:map-marker-distance", [
@@ -936,6 +964,15 @@ function viewGraficos(c) {
       period: "hour",
       stat_types: ["max"],
     }),
+    c.stats(
+      "Temperatura máx. da bateria (30 dias)",
+      30,
+      [
+        [KEYS.TEMP_MAX, "Máx."],
+        [KEYS.OUT_TEMP, "Externa"],
+      ],
+      { stat_types: ["max"] }
+    ),
     c.stats("SOC (30 dias)", 30, [[KEYS.SOC]]),
     c.stats("SOH (90 dias)", 90, [[KEYS.SOH], [KEYS.SOH_CALC]], { period: "week", stat_types: ["mean"] }),
   ]);
@@ -948,7 +985,20 @@ function viewGraficos(c) {
       [KEYS.BUS_FRONT, "Barramento D"],
     ]),
   ]);
-  return c.view("Gráficos", "graficos", "mdi:chart-line", [uso, bateria, doze]);
+  const pneus = c.section("Pneus", "mdi:car-tire-alert", [
+    c.stats(
+      "Pressão dos pneus (30 dias)",
+      30,
+      [
+        [KEYS.TP_LF, "DE"],
+        [KEYS.TP_RF, "DD"],
+        [KEYS.TP_LR, "TE"],
+        [KEYS.TP_RR, "TD"],
+      ],
+      { stat_types: ["mean"] }
+    ),
+  ]);
+  return c.view("Gráficos", "graficos", "mdi:chart-line", [uso, bateria, c.stack(doze, pneus)]);
 }
 
 /**

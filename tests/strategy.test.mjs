@@ -224,6 +224,20 @@ test("abas em 3 colunas: seções empilhadas e larguras certas nas seções de 2
   const motor = conducao[1].cards[1].entities[0];
   assert.equal(motor.type, "conditional", "linha do motor some sem valor");
   assert.deepEqual(motor.conditions[0].state_not, ["unknown", "unavailable"]);
+
+  // badges: navegação para a aba certa e alerta condicional da 12 V
+  const badges = view("carro").badges;
+  const bBat = badges.find((b) => b.name === "Bateria");
+  assert.equal(bBat.tap_action.navigation_path, "/evmetrics-seal/energia");
+  const b12 = badges.find((b) => b.name === "12 V");
+  assert.deepEqual(b12.visibility, [{ condition: "numeric_state", entity: "sensor.byd_seal_ota_battery_power_voltage", below: 12.2 }]);
+
+  // gauge de carga sem vermelho em DC rápida, e gráficos novos empilhados em 3 colunas
+  const gaugeCarga = under(view("energia"), "Recarga").find((x) => x.type === "gauge");
+  assert.equal(gaugeCarga.severity, undefined);
+  assert.equal(gaugeCarga.segments.length, 3);
+  const graficos = view("graficos").sections;
+  assert.deepEqual(graficos.map(headings), [["Uso"], ["Bateria"], ["12 V e motores", "Pneus"]]);
 });
 
 test("sem integração ou sem carro mostra uma mensagem", async () => {

@@ -43,7 +43,7 @@ entidades do carro por sistema; o que o pacote ainda não conhece fica em **Outr
 colunas de alturas parecidas; no celular viram uma coluna só, na mesma ordem.
 
 Opções (**Configurar** na integração): título, mostrar ou não na barra lateral, imagem do carro (por exemplo
-`/local/images/meu-carro.png`; vazio = o desenho do pacote) e câmeras ao vivo para a aba Sentinela (por exemplo as
+`/local/images/meu-carro.png`; vazio = a imagem do pacote) e câmeras ao vivo para a aba Sentinela (por exemplo as
 câmeras MJPEG do app).
 
 ### Câmeras pela internet

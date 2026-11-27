@@ -36,7 +36,7 @@
         "data_description": {
           "title": "Empty = the car name.",
           "image_upload": "PNG, JPEG, WebP or SVG up to 10 MB. Replaces the URL below.",
-          "image": "For example /local/images/my-car.png. Empty = the built-in drawing.",
+          "image": "For example /local/images/my-car.png. Empty = the built-in image.",
           "live_cameras": "Camera entities shown live in the Sentry section (for example the MJPEG cameras of the app)."
         }
       }

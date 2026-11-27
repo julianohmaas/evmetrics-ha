@@ -127,6 +127,9 @@ test("Todos: grupos por sistema em 3 colunas, chave desconhecida em Outros e sem
   const group = (heading) => cards[cards.findIndex((x) => x.heading === heading) + 1].entities.map((x) => x.entity);
   assert.deepEqual(group("Outros"), ["sensor.byd_seal_chave_nova_do_app"]);
   assert.ok(group("Bateria e energia").includes("sensor.byd_seal_bms_charge_count"));
+  assert.ok(group("Bateria e energia").includes("sensor.byd_seal_real_range"));
+  assert.ok(group("Células (CAN)").includes("sensor.byd_seal_bms_delta_full_mv"));
+  assert.ok(group("Células (CAN)").includes("sensor.byd_seal_bms_balance_gain_30d"));
   assert.ok(group("Motores").includes("sensor.byd_seal_uds_rear_rpm"));
   assert.ok(group("Motores").includes("sensor.byd_seal_charging_driver_motor_current"), "corrente do motor não é recarga");
   assert.ok(group("Recarga").includes("binary_sensor.byd_seal_charging"));
@@ -203,6 +206,7 @@ test("abas em 3 colunas: seções empilhadas e larguras certas nas seções de 2
   const carro = view("carro").sections;
   assert.deepEqual(carro.map(headings), [["Visão geral"], ["Portas e janelas", "Clima e luzes"], ["Conexão e 12 V"], ["Onde está"]]);
   assert.equal(carro[3].column_span, 3, "mapa na largura toda");
+  assert.equal(carro[3].cards[1].entities[0].label_mode, "icon", "carro mostra ícone no mapa em vez da sigla");
 
   const sentinela = view("sentinela").sections;
   assert.deepEqual(sentinela.map(headings), [
@@ -217,7 +221,13 @@ test("abas em 3 colunas: seções empilhadas e larguras certas nas seções de 2
   const hist = view("energia").sections.find((s) => headings(s)[0] === "Últimas 24 h");
   assert.equal(hist.column_span, 2);
   assert.deepEqual(hist.cards.slice(1).map((x) => x.grid_options.columns), [12, 12, "full"]);
-  assert.deepEqual(under(view("energia"), "BMS")[0].entities.map((x) => x.name), ["Recargas (BMS)"]);
+  assert.ok(under(view("energia"), "BMS")[0].entities.some((x) => x.name === "Recargas (BMS)"));
+  const saude = under(view("energia"), "Saúde das células e balanceamento");
+  assert.equal(saude.length, 2, "resumo escalar + cartão markdown de diagnóstico");
+  assert.equal(saude[1].type, "markdown");
+  assert.match(saude[1].content, /cells_mv/);
+  assert.match(saude[1].content, /snapshots/);
+  assert.match(saude[1].content, /diff/);
 
   const conducao = view("conducao").sections;
   assert.deepEqual(conducao.map((s) => headings(s)[0]), ["Condução", "Motores", "Pneus", "Viagem", "Temperaturas dos motores (24 h)"]);
@@ -252,6 +262,17 @@ test("app mais velho que o pacote mostra aviso", async () => {
   v.app_version = "0.9";
   const d = await generateDashboard({}, hassWith(v));
   assert.match(JSON.stringify(d.views[0]), /espera a \*\*1\.0\*\*/);
+});
+
+test("carro em versão 1.1 (só CELLS e BMS_BAL_MAX, sem chaves 1.2) gera diagnóstico markdown sem buracos", async () => {
+  const v = vehicle(["SOC", "RANGE", "CELLS", "BMS_BAL_MAX"]);
+  const d = await generateDashboard({}, hassWith(v));
+  check(d, v);
+  const saude = under(d.views.find((x) => x.path === "energia"), "Saúde das células e balanceamento");
+  assert.equal(saude.length, 1, "sem escalares 1.2, entra só o markdown");
+  assert.equal(saude[0].type, "markdown");
+  assert.match(saude[0].content, /cells_mv/);
+  assert.ok(!saude[0].content.includes("snapshots"), "sem BMS_DELTA_REST não referencia snapshots");
 });
 
 test("entry_id vai no pedido ao websocket", async () => {

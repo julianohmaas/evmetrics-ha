@@ -148,7 +148,7 @@ class EvMetricsOptionsFlow(OptionsFlow):
             {
                 vol.Optional(CONF_TITLE): selector.TextSelector(),
                 vol.Optional(CONF_SIDEBAR, default=DEFAULT_SIDEBAR): selector.BooleanSelector(),
-                # enviar um arquivo (vira a URL abaixo) ou escrever a URL; vazio = o desenho do pacote
+                # enviar um arquivo (vira a URL abaixo) ou escrever a URL; vazio = a imagem do pacote
                 vol.Optional(CONF_IMAGE_UPLOAD): selector.FileSelector(
                     selector.FileSelectorConfig(accept="image/png,image/jpeg,image/webp,image/svg+xml")
                 ),

@@ -17,6 +17,7 @@ const KEYS = {
   SOC: "STATISTIC_SOC_BATTERY_PERCENTAGE",
   SOC_FINE: "STATISTIC_REMAINING_BATTERY_POWER",
   RANGE: "STATISTIC_ELEC_DRIVING_RANGE",
+  REAL_RANGE: "real_range",
   ENERGY: "POWER_BATTERY_REMAIN_ELECTRICITY",
   CURRENT: "STATISTIC_INSTANTANEOUS_CURRENT",
   DISCH_MAX: "STATISTIC_MAX_DISCHARGE_POWER_ALLOW",
@@ -24,23 +25,37 @@ const KEYS = {
   SOH: "STATISTIC_BATTERY_HEALTHY_INDEX",
   SOH_CALC: "soh_calc",
   CAPACITY: "BODYWORK_BATTERY_CAPACITY",
+  BMS_CHARGE_KWH: "BMS_CHARGE_KWH",
+  BMS_DISCHARGE_KWH: "BMS_DISCHARGE_KWH",
   CELL_MIN: "STATISTIC_LOWEST_BATTERY_VOLTAGE",
   CELL_MAX: "STATISTIC_HIGHEST_BATTERY_VOLTAGE",
   BYD_DELTA: "byd_cell_delta_mv",
   TEMP_AVG: "STATISTIC_AVERAGE_BATTERY_TEMP",
   TEMP_MIN: "STATISTIC_LOWEST_BATTERY_TEMP",
   TEMP_MAX: "STATISTIC_HIGHEST_BATTERY_TEMP",
-  // células (CAN)
+  // células (CAN) e saúde/balanceamento (BMS)
   CAN_MIN: "BATTERY_CELL_MIN_MV",
   CAN_MAX: "BATTERY_CELL_MAX_MV",
   CAN_AVG: "BATTERY_CELL_AVG_MV",
   CAN_DELTA: "BATTERY_CELL_DELTA_MV",
+  CAN_STDDEV: "BATTERY_CELL_STDDEV_MV",
+  CAN_WEAK_GAP: "BATTERY_CELL_WEAK_GAP_MV",
   CAN_MIN_NUM: "BATTERY_CELL_MIN_NUM",
   CAN_MAX_NUM: "BATTERY_CELL_MAX_NUM",
   PACK_V: "BATTERY_CELL_SUM_V",
   CELLS: "BATTERY_CELL_VOLTAGES",
   PACK_TMIN: "BATTERY_TEMP_MIN_C",
   PACK_TMAX: "BATTERY_TEMP_MAX_C",
+  BMS_DELTA_FULL: "BMS_DELTA_FULL_MV",
+  BMS_DELTA_REST: "BMS_DELTA_REST_MV",
+  BMS_DELTA_LOAD: "BMS_DELTA_LOAD_MV",
+  BMS_WEAK_LOAD_NUM: "BMS_WEAK_CELL_LOAD_NUM",
+  BMS_DRIFT30: "BMS_CELL_DRIFT_30D_MV",
+  BMS_BAL_MAX: "BMS_BALANCE_MAX",
+  BMS_BAL_DELTA: "BMS_BALANCE_DELTA",
+  BMS_BAL_STDDEV: "BMS_BALANCE_STDDEV",
+  BMS_BAL_GAIN30: "BMS_BALANCE_GAIN_30D",
+  BMS_BAL_GAIN30_NUM: "BMS_BALANCE_GAIN_30D_NUM",
   // viagem
   ODO: "STATISTIC_TOTAL_MILEAGE",
   TRIP1: "STATISTIC_DD_MILEAGE1",
@@ -168,10 +183,10 @@ const GROUP_RULES = [
   ["motores", /^(gb_|engine_(front|rear)_|can_(motor|inverter)_|uds_)|driver_motor_current$/],
   ["recarga", /^(charging|last_charge$|charge_event$)/],
   ["pneus", /tyre/],
-  ["celulas", /^(battery_cell_|battery_temp|bms_balance)/],
+  ["celulas", /^(battery_cell_|battery_temp|bms_(balance|delta_|weak_cell_|cell_))/],
   [
     "bateria",
-    /^(statistic_(soc|remaining|elec|instantaneous|max_|battery_healthy|lowest_battery|highest_battery|average_battery)|power_battery|bodywork_battery_capacity$|bms_|soh_calc$|byd_cell_delta)/,
+    /^(statistic_(soc|remaining|elec|instantaneous|max_|battery_healthy|lowest_battery|highest_battery|average_battery)|power_battery|bodywork_battery_capacity$|bms_|soh_calc$|byd_cell_delta|real_range$)/,
   ],
   ["viagem", /^(statistic_(total_mileage|dd_mileage|driving_time|total_elec)|instrument_dd_last_50km)/],
   ["conducao", /^(gearbox_|speed_|sensor_|set_dr_|energy_(operation|road)|engine_power$|bodywork_steering|adas_|drive_mode$|instrument_2in1_fault)/],
@@ -491,7 +506,7 @@ function viewCarro(c) {
           { type: "heading", heading: "Onde está", icon: "mdi:map-marker" },
           {
             type: "map",
-            entities: [{ entity: c.id(KEYS.LOCATION) }, { entity: "zone.home" }],
+            entities: [{ entity: c.id(KEYS.LOCATION), label_mode: "icon" }, { entity: "zone.home" }],
             hours_to_show: 24,
             default_zoom: 15,
             theme_mode: "auto",
@@ -715,11 +730,74 @@ function pushCameras(c) {
   return { cameras, alerta };
 }
 
+/**
+ * Cartão nativo Markdown (Jinja2 avaliado pelo HA em tempo real) com o ranking das células mais baixas/altas,
+ * líderes de balanceamento e, quando o app 1.2+ publica os resumos temporais, comparação com 7 d / 30 d e snapshots.
+ */
+function cellDiagnosticsCard(c) {
+  const cellsEnt = c.id(KEYS.CELLS);
+  const balEnt = c.id(KEYS.BMS_BAL_MAX);
+  const snapEnt = c.id(KEYS.BMS_DELTA_REST);
+  if (!cellsEnt && !balEnt && !snapEnt) return null;
+
+  const blocks = [];
+  if (cellsEnt) {
+    blocks.push(
+      `{% set raw = state_attr('${cellsEnt}', 'cells_mv') or [] %}` +
+        `{% set ns = namespace(items=[], sum=0) %}` +
+        `{% for v in raw %}{% if v is number and v > 0 %}` +
+        `{% set ns.items = ns.items + [[v, loop.index]] %}{% set ns.sum = ns.sum + v %}` +
+        `{% endif %}{% endfor %}` +
+        `{% if ns.items | count > 0 %}` +
+        `{% set avg = ns.sum / (ns.items | count) %}` +
+        `**Tensões ao vivo ({{ ns.items | count }} células, média {{ avg | round(1) }} mV)**\n` +
+        `- **Mais baixas:** {% for v, i in (ns.items | sort)[:5] %}#{{ i }} {{ v }} ({{ '%+d' | format((v - avg) | round(0) | int) }}){{ ' · ' if not loop.last else '' }}{% endfor %}\n` +
+        `- **Mais altas:** {% for v, i in (ns.items | sort(reverse=true))[:5] %}#{{ i }} {{ v }} ({{ '%+d' | format((v - avg) | round(0) | int) }}){{ ' · ' if not loop.last else '' }}{% endfor %}\n` +
+        `{% endif %}`
+    );
+  }
+  if (snapEnt) {
+    blocks.push(
+      `{% set sn = state_attr('${snapEnt}', 'snapshots') %}` +
+        `{% if sn is mapping %}` +
+        `**Snapshots de referência**\n` +
+        `{% if sn.full is mapping %}- **Topo (≥99%):** Δ {{ sn.full.delta_mv }} mV (mín #{{ sn.full.min_num }}, máx #{{ sn.full.max_num }}, SOC {{ sn.full.soc }}%)\n{% endif %}` +
+        `{% if sn.rest is mapping %}- **Repouso:** Δ {{ sn.rest.delta_mv }} mV (mín #{{ sn.rest.min_num }}, SOC {{ sn.rest.soc }}%)\n{% endif %}` +
+        `{% if sn.load is mapping %}- **Carga (≥50 kW):** Δ {{ sn.load.delta_mv }} mV a {{ sn.load.kw }} kW (mín #{{ sn.load.min_num }})\n{% endif %}` +
+        `{% if sn.load_top_weak %}- **Mais fracas sob carga:** {% for i, n, tot in sn.load_top_weak %}#{{ i }} ({{ n }}/{{ tot }}×){{ ' · ' if not loop.last else '' }}{% endfor %}\n{% endif %}` +
+        `{% if sn.drift_low %}- **Deriva ({{ sn.drift_days }} d, {{ sn.drift_kind }}):** {% for i, rel, d in sn.drift_low %}#{{ i }} ({{ '%+.1f' | format(d) }} mV){{ ' · ' if not loop.last else '' }}{% endfor %}\n{% endif %}` +
+        `{% endif %}`
+    );
+  }
+  if (balEnt) {
+    blocks.push(
+      `{% set bc = state_attr('${balEnt}', 'cells') or [] %}` +
+        `{% set bs = namespace(items=[], sum=0) %}` +
+        `{% for v in bc %}{% if v is number and v >= 0 %}` +
+        `{% set bs.items = bs.items + [[v, loop.index]] %}{% set bs.sum = bs.sum + v %}` +
+        `{% endif %}{% endfor %}` +
+        `{% if bs.items | count > 0 %}` +
+        `{% set bavg = bs.sum / (bs.items | count) %}` +
+        `**Balanceamento (média {{ bavg | round(1) }})**\n` +
+        `- **Mais exigidas:** {% for v, i in (bs.items | sort(reverse=true))[:5] %}#{{ i }}: {{ v }} ({{ '%+d' | format((v - bavg) | round(0) | int) }}){{ ' · ' if not loop.last else '' }}{% endfor %}\n` +
+        `{% endif %}` +
+        `{% set df = state_attr('${balEnt}', 'diff') %}` +
+        `{% if df is mapping %}` +
+        `{% if df.prev_top %}- **Última mudança:** {% for i, g, cur in df.prev_top %}#{{ i }} (+{{ g }}){{ ' · ' if not loop.last else '' }}{% endfor %}\n{% endif %}` +
+        `{% if df.d7_top %}- **~{{ df.d7_days }} d (média +{{ df.d7_avg }}):** {% for i, g, cur in df.d7_top %}#{{ i }} (+{{ g }}){{ ' · ' if not loop.last else '' }}{% endfor %}\n{% endif %}` +
+        `{% if df.d30_top %}- **~{{ df.d30_days }} d (média +{{ df.d30_avg }}):** {% for i, g, cur in df.d30_top %}#{{ i }} (+{{ g }}){{ ' · ' if not loop.last else '' }}{% endfor %}\n{% endif %}` +
+        `{% endif %}`
+    );
+  }
+  return { type: "markdown", content: blocks.join("\n").trim(), grid_options: { columns: 12 } };
+}
+
 function viewEnergia(c) {
   const bateria = c.section("Bateria", "mdi:battery-high", [
     socGauge(c),
     c.tile(KEYS.ENERGY, "Energia restante", { icon: "mdi:lightning-bolt" }),
     c.tile(KEYS.RANGE, "Autonomia", { icon: "mdi:map-marker-distance" }),
+    c.known(c.tile(KEYS.REAL_RANGE, "Autonomia (50 km)", { icon: "mdi:road-variant", ...FULL })),
     c.trend(KEYS.CURRENT, "Corrente", 24, { ...FULL, icon: "mdi:current-dc" }),
     c.tile(KEYS.DISCH_MAX, "Descarga máx.", { icon: "mdi:battery-arrow-down" }),
     c.tile(KEYS.CHG_MAX, "Recarga máx.", { icon: "mdi:battery-arrow-up" }),
@@ -800,13 +878,15 @@ function viewEnergia(c) {
         [KEYS.TEMP_MAX, "Temperatura máx."],
       ]),
       ...c.knownRows([
+        [KEYS.CAN_STDDEV, "Desvio padrão", "mdi:sigma"],
+        [KEYS.CAN_WEAK_GAP, "Queda da mínima", "mdi:arrow-collapse-down"],
         [KEYS.PACK_TMIN, "Temperatura mín. (CAN)"],
         [KEYS.PACK_TMAX, "Temperatura máx. (CAN)"],
       ]),
     ]),
   ]);
 
-  // fileira 2: históricos (2 colunas: células e temperatura lado a lado, recarga embaixo) + BMS
+  // fileira 2: históricos (2 colunas: células e temperatura lado a lado, recarga embaixo) + diagnóstico/BMS
   const historico = c.section(
     "Últimas 24 h",
     "mdi:chart-line",
@@ -843,9 +923,27 @@ function viewEnergia(c) {
     { column_span: 2 }
   );
 
-  // leitura do BMS por UDS: chaves BMS_* (acumulados e balanceamento); entram todas as que existirem
+  // snapshots comparáveis, dispersão do balanceamento e ranking célula a célula
+  const diagKeys = [
+    [KEYS.BMS_DELTA_FULL, "Δ no topo (≥99%)", "mdi:delta"],
+    [KEYS.BMS_DELTA_REST, "Δ em repouso", "mdi:delta"],
+    [KEYS.BMS_DELTA_LOAD, "Δ sob carga (≥50 kW)", "mdi:delta"],
+    [KEYS.BMS_WEAK_LOAD_NUM, "Célula mín. sob carga", "mdi:numeric"],
+    [KEYS.BMS_DRIFT30, "Deriva máx. (30 d)", "mdi:chart-timeline-variant"],
+    [KEYS.BMS_BAL_DELTA, "Diferença de balanceamento", "mdi:scale-balance"],
+    [KEYS.BMS_BAL_STDDEV, "Desvio do balanceamento", "mdi:sigma"],
+    [KEYS.BMS_BAL_GAIN30, "Ganho máx. balanceamento (30 d)", "mdi:trending-up"],
+    [KEYS.BMS_BAL_GAIN30_NUM, "Célula maior ganho (30 d)", "mdi:numeric"],
+  ];
+  const shownDiag = new Set(diagKeys.map(([k]) => k.toLowerCase()));
+  const saudeCelulas = c.section("Saúde das células e balanceamento", "mdi:scale-balance", [
+    c.entities(null, diagKeys),
+    cellDiagnosticsCard(c),
+  ]);
+
+  // leitura do BMS por UDS: chaves BMS_* restantes (acumulados, capacidades...); entram todas as que existirem
   const bmsKeys = Object.keys(c.map)
-    .filter((k) => k.startsWith("bms_"))
+    .filter((k) => k.startsWith("bms_") && !shownDiag.has(k))
     .sort();
   const bms = bmsKeys.length
     ? c.section("BMS", "mdi:chip", [
@@ -853,7 +951,13 @@ function viewEnergia(c) {
       ])
     : null;
 
-  return c.view("Energia", "energia", "mdi:battery-charging", [bateria, recarga, celulas, historico, bms]);
+  return c.view("Energia", "energia", "mdi:battery-charging", [
+    bateria,
+    recarga,
+    celulas,
+    historico,
+    c.stack(saudeCelulas, bms),
+  ]);
 }
 
 function viewConducao(c) {
@@ -957,6 +1061,10 @@ function viewGraficos(c) {
   const uso = c.section("Uso", "mdi:chart-bar", [
     change("Percurso diário", 30, "day", [[KEYS.ODO, "km"]]),
     change("Energia consumida por dia", 30, "day", [[KEYS.CONS_TOTAL, "kWh"]]),
+    change("Energia carregada vs. descarregada (BMS)", 30, "day", [
+      [KEYS.BMS_CHARGE_KWH, "Carregada"],
+      [KEYS.BMS_DISCHARGE_KWH, "Descarregada"],
+    ]),
     c.stats("Consumo últimos 50 km (média diária)", 30, [[KEYS.CONS50]], { stat_types: ["mean"] }),
   ]);
   const bateria = c.section("Bateria", "mdi:chart-line", [
@@ -964,6 +1072,25 @@ function viewGraficos(c) {
       period: "hour",
       stat_types: ["max"],
     }),
+    c.stats(
+      "Snapshots de diferença das células (90 dias)",
+      90,
+      [
+        [KEYS.BMS_DELTA_FULL, "Topo (≥99%)"],
+        [KEYS.BMS_DELTA_LOAD, "Carga (≥50 kW)"],
+        [KEYS.BMS_DELTA_REST, "Repouso"],
+      ],
+      { period: "week", stat_types: ["max"] }
+    ),
+    c.stats(
+      "Evolução do balanceamento (90 dias)",
+      90,
+      [
+        [KEYS.BMS_BAL_DELTA, "Diferença"],
+        [KEYS.BMS_BAL_GAIN30, "Ganho 30 d"],
+      ],
+      { period: "week", stat_types: ["max"] }
+    ),
     c.stats(
       "Temperatura máx. da bateria (30 dias)",
       30,
